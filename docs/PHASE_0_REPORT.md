@@ -9,6 +9,7 @@
 3. Транспорт — userbot на аккаунте @AlysiaNya (ADR-0002 пересмотрен).
 4. Все модели — через облачные API, без локальных.
 5. Сервер — Ubuntu.
+6. В группах Аля понимает ответы себе и без reply — Addressee Detector (ADR-0008). Это отступление от SPEC_V3 («только mention/reply»), согласованное с владельцем.
 
 ## 1. Что реально изучено
 
@@ -72,7 +73,7 @@ aiogram 3.31.0 (MIT, Python 3.10+, Bot API 10.3); sqlite-vec 0.1.9 (Apache-2.0, 
 
 ## 7. Созданные документы
 
-README.md, LICENSE, .gitignore, docs/SPEC_V3.md, docs/ARCHITECTURE.md, docs/IMPLEMENTATION_PLAN.md, docs/DEPENDENCIES.md, docs/SECURITY.md, docs/ADR/0001…0007, docs/PHASE_0_REPORT.md. Исходного кода нет.
+README.md, LICENSE, .gitignore, docs/SPEC_V3.md, docs/ARCHITECTURE.md, docs/IMPLEMENTATION_PLAN.md, docs/DEPENDENCIES.md, docs/SECURITY.md, docs/ADR/0001…0008, docs/PHASE_0_REPORT.md. Исходного кода нет.
 
 ## 8. Открытые вопросы
 
