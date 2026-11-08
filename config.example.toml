@@ -1,0 +1,35 @@
+# Скопируйте в config.toml. Секреты сюда НЕ писать — только в .env.
+
+[app]
+timezone = "Asia/Yekaterinburg"
+language = "ru"
+data_dir = "runtime"
+# owner_user_id = 123456789   # Telegram id владельца
+
+[telegram]
+mode = "userbot"              # userbot | bot | none
+session_dir = "runtime/td_database"
+
+[llm]
+base_url = "https://openrouter.ai/api/v1"
+timeout_s = 60
+
+# Роли моделей: chat, utility, embedding, vision, stt, tts, image.
+# У роли можно указать свой base_url.
+# [llm.roles.chat]
+# model = "provider/model"
+# [llm.roles.embedding]
+# model = "provider/embedding-model"
+
+[storage]
+db_path = "runtime/alya.sqlite3"
+busy_timeout_ms = 5000
+
+[health]
+enabled = true
+host = "127.0.0.1"
+port = 8080
+
+[logging]
+level = "INFO"
+format = "json"               # json | text

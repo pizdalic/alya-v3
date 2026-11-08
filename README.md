@@ -1,26 +1,46 @@
-# Alya v3 (Kuni × Alya)
+# Аля
 
-Telegram-компаньон «Аля», третья версия. Python 3.12+, модульная архитектура, гибридная память, эмоциональная модель, TDLib userbot (аккаунт @AlysiaNya) как основной транспорт, LLM только через облачные API.
+Telegram-компаньон, живущий в собственном аккаунте (userbot): помнит людей и разговоры, понимает, когда в группе обращаются к ней, и пишет по-русски. Проект пишется с нуля.
 
 ## Статус
 
-**Phase 0 — Research & Architecture.** Код ещё не написан, это осознанно: по спецификации реализация начинается только после подтверждения Phase 0.
+**Phase 1 — Foundation.** Готова основа: конфигурация, DI, Event Bus, хранилище SQLite с миграциями, жизненный цикл, логирование без секретов и личных данных, healthcheck, Docker, CI. Telegram, память и персонаж появятся в следующих фазах — см. [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
 
-## Документы
+## Быстрый старт (Ubuntu, Docker)
 
-- [docs/SPEC_V3.md](docs/SPEC_V3.md) — полная спецификация (исходное ТЗ)
-- [docs/PHASE_0_REPORT.md](docs/PHASE_0_REPORT.md) — итоговый отчёт исследования
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — архитектура, компоненты, модель данных
-- [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) — фазы и критерии готовности
-- [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) — зависимости, версии, лицензии
-- [docs/SECURITY.md](docs/SECURITY.md) — модель угроз и меры защиты
+```bash
+cp config.example.toml config.toml
+cp .env.example .env          # заполнить секреты
+mkdir -p runtime && sudo chown 10001:10001 runtime
+docker compose build
+docker compose run --rm alya check-config
+docker compose up -d
+docker compose exec alya alya healthcheck
+```
+
+## Локальная разработка
+
+```bash
+python3 -m venv .venv && . .venv/bin/activate
+pip install -e ".[dev]"
+alya check-config
+alya migrate
+pytest -q && ruff check . && mypy
+```
+
+Команды: `alya check-config`, `alya migrate`, `alya run`, `alya healthcheck`, `alya version`.
+
+Конфигурация: `config.toml` + переменные окружения `ALYA_<СЕКЦИЯ>__<КЛЮЧ>` (окружение важнее файла). Секреты (`api_hash`, `api_key`, `bot_token`) принимаются только из окружения.
+
+## Документация
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — архитектура
+- [docs/DECISIONS.md](docs/DECISIONS.md) — принятые решения
 - [docs/ADR/](docs/ADR/) — архитектурные решения
-
-## Предшественники
-
-- [alex2772/kuni](https://github.com/alex2772/kuni) — источник идей (код не переиспользуется, см. ADR-0006)
-- [pizdalic/alya-v2](https://github.com/pizdalic/alya-v2) — характер, принципы изоляции и памяти
+- [docs/SECURITY.md](docs/SECURITY.md) — модель угроз
+- [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) — зависимости
+- [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) — план
 
 ## Лицензия
 
-[PolyForm Noncommercial 1.0.0](LICENSE): можно использовать, копировать, изменять и распространять в некоммерческих целях. Коммерческое использование, включая продажу, запрещено. Это source-available лицензия, а не OSI open source. См. [ADR-0007](docs/ADR/0007-license.md).
+[PolyForm Noncommercial 1.0.0](LICENSE): можно использовать, копировать и изменять в некоммерческих целях; продавать и использовать коммерчески нельзя. См. [ADR-0006](docs/ADR/0006-license.md).

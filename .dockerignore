@@ -1,0 +1,8 @@
+.git
+.github
+.env
+runtime/
+**/__pycache__
+*.sqlite3*
+tests/
+docs/
