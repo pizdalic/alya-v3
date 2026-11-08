@@ -8,11 +8,11 @@
 |---|---|---|---|
 | 1 Foundation | pyproject, src-layout, конфиг (TOML + .env, валидация), DI, Event Bus, логирование без PII, SQLite WAL + миграции, lifecycle, healthcheck, Dockerfile (non-root), CI (lint, types, tests) | Phase 0 | M |
 | 2 Memory Engine | три уровня памяти, scope-репозитории, FTS5, эмбеддинги в BLOB, NumPy cosine, RRF, Markdown-зеркало, Forget API, тесты изоляции | 1 | L |
-| 3 Character Engine | загрузка персонажа, VAD + decay, emotional diary, отношения, двухэтапная генерация, Context Allocator | 2, LLM-слой (минимум один провайдер) | L |
-| 4 Telegram Layer | TDLib userbot (Pytdbot + tdjson): авторизация @AlysiaNya, per-chat очередь, debounce, typing, burst, outbox, FloodWait, группы: Addressee Detector (явные сигналы + нити разговора + LLM-классификатор серой зоны), privacy-команды; Bot API адаптер — резервный транспорт и тестовый стенд | 1–3 | L |
+| 3 Character Engine | перенос character/ из alya-v2 и совместная редактура с владельцем, загрузка персонажа, глобальное настроение + VAD + decay, emotional diary, отношения, двухэтапная генерация, Context Allocator | 2, LLM-слой (минимум один провайдер) | L |
+| 4 Telegram Layer | TDLib userbot (Pytdbot + tdjson): авторизация @AlysiaNya, per-chat очередь, debounce, typing, burst, outbox, FloodWait, фильтр собственных сообщений, политика незнакомцев, правки/удаления сообщений, группы: Addressee Detector (явные сигналы + нити разговора + LLM-классификатор серой зоны), privacy-команды; Bot API адаптер — резервный транспорт и тестовый стенд | 1–3 | L |
 | 5 Dream Engine | консолидация, дедупликация, противоречия, provenance, атомарность, тесты восстановления после сбоя | 2, 3 | M |
-| 6 Multimodal | vision, STT, TTS, стикеры/реакции, лимиты размеров, fallback | 4 | M |
-| 7 Autonomy | проактивность (quiet hours, cooldown, лимиты), напоминания, плагины с разрешениями, модерация dry_run | 4, 5 | M |
+| 6 Multimodal & Tools | vision, STT, TTS, генерация фото, стикеры/реакции, веб-поиск, чтение каналов, вступление по ссылке и bio/аватар по команде владельца, лимиты размеров, fallback | 4 | M |
+| 7 Autonomy | проактивность в личке и инициатива в группах (ADR-0009: quiet hours, cooldown, лимиты), напоминания, плагины с разрешениями, модерация dry_run | 4, 5 | M |
 | 8 Hardening & Release | аудит безопасности, нагрузочные тесты, backup/restore, документация, релизная сборка, инструкции обновления/отката | все | M |
 
 ## Порядок внутри Phase 1 (после подтверждения)

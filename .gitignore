@@ -7,6 +7,12 @@ data/
 *.sqlite3-wal
 *.sqlite3-shm
 *.session
+*.binlog
+td_database/
+td_files/
+.env.*
+!.env.example
+*.db
 memory_mirror/
 backups/
 logs/

@@ -10,7 +10,7 @@
 4. **Полномочия — только по проверенному Telegram ID**, а не по имени, нику, пересылке или тексту (принцип из alya-v2).
 5. **БД — источник истины**, Markdown — читаемое зеркало (ADR-0004).
 6. **Без скрытого chain-of-thought.** Внутренний этап — краткий структурированный план, пригодный для логов.
-7. **Каждый внешний провайдер деклярирует capabilities** и может отказать без падения приложения.
+7. **Каждый внешний провайдер декларирует capabilities** и может отказать без падения приложения.
 
 ## 2. Компоненты
 
@@ -90,11 +90,11 @@ alya-v3/
 ## 4. Поток входящего сообщения
 
 1. **Inbound adapter** получает update, нормализует в `InboundMessage` (chat_id, user_id, message_id, текст, медиа-метаданные, reply_to, признак упоминания). Внутренний формат Telegram в модель не попадает.
-2. **Event Bus** публикует `message.received`; сообщение сразу пишется в `messages`.
-3. **Per-chat queue**: строгий порядок внутри чата, параллельность между чатами. Debounce (настраиваемо, порядок 1–3 с) склеивает быстрые сообщения в одну пачку.
-4. **Security gate**: allow-list/lockdown, rate limit на пользователя и чат, в группах — **Addressee Detector** решает, обращено ли сообщение к Але: явные сигналы (reply, @упоминание, имя) или продолжение её разговора без reply (см. раздел 4.1 и ADR-0008); маркировка недоверенного содержимого.
+2. **Event Bus** публикует `message.received`. **Фильтр собственных сообщений:** исходящие сообщения аккаунта (`is_outgoing`) не обрабатываются как входящие — иначе Аля отвечает сама себе. Сообщения, которые владелец вручную пишет с @AlysiaNya с телефона, считаются репликами Али (открывают нить разговора), но не запускают генерацию. Сообщение пишется в `messages` с TTL по политике чата: в группах сообщения не к Але — только контекст на 1–3 дня (`context_only`), факты из них не извлекаются. Правки обновляют запись, удаление в Telegram удаляет её из `messages`.
+3. **Per-chat queue**: строгий порядок внутри чата, параллельность между чатами. Debounce (настраиваемо, порядок 1–3 с) склеивает быстрые сообщения в одну пачку **только от одного автора**: ключ — (chat_id, user_id), иначе в группе реплики разных людей слипнутся в одно «сообщение».
+4. **Security gate**: allow-list/lockdown; **политика незнакомцев в личке** (userbot может написать кто угодно — это спам и расходы): по умолчанию отвечать контактам и людям из общих групп, остальным — лимит или игнор, настраивается; rate limit на пользователя и чат, в группах — **Addressee Detector** решает, обращено ли сообщение к Але: явные сигналы (reply, @упоминание, имя) или продолжение её разговора без reply (см. раздел 4.1 и ADR-0008); маркировка недоверенного содержимого.
 5. **Orchestrator**: typing presence → сбор контекста (Allocator) → этап 1 «план» (JSON: intent, tone, memories_used, actions, constraints) → этап 2 «ответ».
-6. **Output sanitizer**: удаление системных маркеров, утечек промпта/секретов, некорректной разметки; валидация под Telegram HTML.
+6. **Output sanitizer**: удаление системных маркеров, утечек промпта/секретов, некорректной разметки; валидация разметки: для TDLib — `formattedText` с entities (через parseTextEntities), для Bot API — HTML.
 7. **Burst splitter**: до N частей (по умолчанию 3, ~160 символов, как в alya-v2), задержки ограничены.
 8. **Outbox → Sender**: отправка с ретраями и уважением RetryAfter; идемпотентность по outbox id.
 9. После отправки: обновление эмоций (VAD + причина), working memory, запись событий; извлечение фактов — асинхронно, не блокирует ответ.
@@ -117,15 +117,17 @@ alya-v3/
 |---|---|---|
 | users | Telegram-пользователи | tg_user_id (PK), display_name, role (owner/admin/user), timezone, created_at |
 | conversation_threads | Активные нити разговора в группах | id, chat_id, participant_user_ids, last_alya_message_id, opened_at, expires_at, expects_answer |
+| deletion_journal | Журнал удалений (ADR-0011), без содержимого | id, target_type, target_id, created_at |
+| proactive_events | Поводы и попытки инициативы (ADR-0009) | id, user_id, chat_id, reason, score, decision, sent_message_id, created_at |
 | chats | Чаты | tg_chat_id (PK), type (private/group/supergroup), title, settings_json, proactive_enabled |
 | chat_members | Связь пользователь–чат | chat_id, user_id, first_seen, last_seen |
-| messages | История (с TTL) | id, chat_id, user_id, tg_message_id, direction, text, media_ref, created_at, expires_at |
+| messages | История (с TTL) | id, chat_id, user_id, tg_message_id, direction, text, media_ref, context_only, addressed_to_alya, edited_at, created_at, expires_at |
 | memories | Воспоминания всех уровней | id (ULID), owner_user_id, chat_id, scope (private / chat / character), layer (working/short/long), category, content, provenance_json, confidence, created_at, updated_at, expires_at, is_permanent, superseded_by |
 | memories_fts | FTS5 (external content) | rowid ↔ memories, content |
 | memory_embeddings | Векторы | memory_id, model_id, dim, vector BLOB (float32), created_at |
 | memory_links | Связи | from_id, to_id, relation (supports/contradicts/derived_from/about) |
 | relationships | Отношение персонажа к пользователю в чате | user_id, chat_id, affinity, trust, notes, updated_at |
-| emotional_state | Текущее VAD | scope_key, valence, arousal, dominance, label, intensity, updated_at |
+| emotional_state | Текущее VAD: глобальное настроение + состояние по (пользователь, чат) | scope_key (global или user:chat), valence, arousal, dominance, label, intensity, updated_at |
 | emotional_diary | История изменений | id, scope_key, delta_vad, cause, message_id, created_at |
 | tasks | Обещания / напоминания | id, user_id, chat_id, text, due_at, status, source_message_id |
 | events | Журнал доменных событий | id, type, payload_json (без PII где возможно), created_at |
@@ -141,6 +143,7 @@ alya-v3/
 - **Семантический (обязательный fallback):** эмбеддинги float32 в BLOB, загрузка кандидатов только в рамках scope, косинус на NumPy. При малом числе записей на scope (ожидаемо — сотни/тысячи) полный перебор приемлем; это нужно подтвердить бенчмарком в Phase 2.
 - **Ускорители (опционально):** sqlite-vec, FAISS — включаются флагом, результаты сверяются с NumPy в тестах.
 - **Слияние:** Reciprocal Rank Fusion, score = Σ 1/(k + rank), k = 60 по умолчанию, плюс модификаторы confidence, свежести и usage.
+- Векторы сравниваются только с `model_id` текущей модели; при смене модели — фоновая переиндексация, до её окончания работает FTS5.
 - Если эмбеддинг-провайдер недоступен — только FTS5, с пометкой в диагностике.
 
 ## 7. Context Window Allocator
@@ -169,11 +172,11 @@ alya-v3/
 - SQLite в режиме WAL, `busy_timeout`, внешние ключи включены, одна пишущая задача на соединение.
 - Миграции — нумерованные SQL-файлы с checksum, применяются при старте, только вперёд; откат — через restore из бэкапа.
 - Backup — онлайн-бэкап SQLite (`VACUUM INTO` или backup API) + архив Markdown-зеркала; restore проверяется тестом.
-- Forget API: удаление по пользователю / чату / записи из memories, FTS, эмбеддингов, ссылок, сводок, зеркала, сообщений и бэкап-политики (бэкапы с истечением срока; что делать с уже сделанными бэкапами — вопрос пользователю).
+- Forget API: удаление по пользователю / чату / записи из memories, FTS, эмбеддингов, ссылок, сводок, зеркала, сообщений и бэкап-политики (бэкапы удаляются по сроку, журнал удалений повторно применяется после restore — ADR-0011).
 
 ## 10. Развёртывание
 
-Docker, non-root пользователь, read-only rootfs где возможно, данные в volume. Целевой хост — Ubuntu + Docker Compose (версия Ubuntu и архитектура CPU уточняются). TDLib в образе **не собирается**: используется prebuilt libtdjson из пакета tdjson. Каталог сессии TDLib — отдельный volume, доступный только пользователю контейнера; первичная авторизация (код, 2FA) — интерактивной командой setup. Локальных моделей нет: LLM, эмбеддинги, vision, STT и TTS — через API.
+Docker, non-root пользователь, read-only rootfs где возможно, данные в volume. Целевой хост — Ubuntu (последняя версия) + Docker Compose; образ собирается под amd64 и arm64, архитектуру CPU сервера нужно уточнить (`uname -m`). TDLib в образе **не собирается**: используется prebuilt libtdjson из пакета tdjson. Каталог сессии TDLib — отдельный volume, доступный только пользователю контейнера; первичная авторизация (код, 2FA) — интерактивной командой setup. Локальных моделей нет: LLM, эмбеддинги, vision, STT и TTS — через API.
 
 ## 11. Возможности (паритет с Kuni)
 
@@ -192,5 +195,7 @@ Docker, non-root пользователь, read-only rootfs где возмож�
 | Bio и аватар | alya-v2 | только по команде владельца или с его подтверждением | — |
 | Чтение каналов | новое | подписки из списка владельца, сводки в память персонажа | контент каналов — недоверенные данные |
 | Напоминания | Kuni/alya-v2 | tasks + планировщик | тихие часы |
+
+Решение «вступить в разговор самой» в группе не должно стоить вызова API на каждое сообщение: сначала бесплатная проверка (ключевые слова интересов, активность чата, cooldown), модель — только для прошедших.
 
 Proxy-сервер Kuni (подмешивание контекста в чужой /v1/chat/completions) в MVP не входит.
