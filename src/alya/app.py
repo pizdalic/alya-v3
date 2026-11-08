@@ -11,6 +11,13 @@ from alya.core.config import Settings
 from alya.core.container import Container
 from alya.core.events import Event, EventBus
 from alya.core.lifecycle import Lifecycle
+from alya.character.allocator import ContextAllocator
+from alya.character.emotion import EmotionStore
+from alya.character.engine import CharacterEngine
+from alya.character.persona import Character, load_character
+from alya.character.relationships import RelationshipStore
+from alya.character.style import Stylizer
+from alya.llm.chat import ChatModel, OpenAICompatibleChat
 from alya.llm.openai_compat import OpenAICompatibleEmbedder
 from alya.memory.indexer import Embedder, EmbeddingIndexer
 from alya.memory.mirror import MarkdownMirror
@@ -133,6 +140,38 @@ def build_memory(settings: Settings, db: Database) -> tuple[MemoryService, Embed
     return MemoryService(repo, search, mirror), indexer
 
 
+def build_chat_model(settings: Settings, role_name: str) -> ChatModel | None:
+    role = settings.llm.roles.get(role_name)
+    if role is None or settings.llm.api_key is None:
+        return None
+    return OpenAICompatibleChat(role.base_url or settings.llm.base_url,
+                                settings.llm.api_key.get_secret_value(), role.model,
+                                timeout_s=settings.llm.timeout_s)
+
+
+def build_character(settings: Settings, db: Database, memory: MemoryService | None,
+                    character: Character | None = None) -> CharacterEngine | None:
+    """Персонаж грузится и проверяется всегда; движок — только если задана модель chat."""
+    cs = settings.character
+    character = character or load_character(cs.dir, cs.persona)
+    chat = build_chat_model(settings, "chat")
+    if chat is None:
+        return None
+    return CharacterEngine(
+        character, chat,
+        planner=build_chat_model(settings, "utility"),
+        emotions=EmotionStore(db, character.persona.id, character.persona.emotion),
+        relationships=RelationshipStore(db, settings.app.owner_user_id),
+        stylizer=Stylizer(db, character.core.style),
+        allocator=ContextAllocator(cs.context_budget_tokens),
+        memory=memory,
+        timezone=settings.app.timezone,
+        recall_k=cs.recall_k,
+        temperature=cs.temperature,
+        max_reply_tokens=cs.max_reply_tokens,
+    )
+
+
 class _SqliteVecLazy:
     """sqlite-vec подключается при первом запросе; если его нет — честный откат на NumPy."""
 
@@ -186,6 +225,13 @@ def build_app(settings: Settings) -> App:
 
     db = container.resolve(Database)
     memory_service, indexer = build_memory(settings, db)
+    character = load_character(settings.character.dir, settings.character.persona)
+    engine = build_character(settings, db, memory_service, character)
+    container.register_instance(Character, character)
+    if engine is not None:
+        container.register_instance(CharacterEngine, engine)
+    else:
+        log.warning("llm.roles.chat не задана: персонаж загружен, но отвечать не сможет")
     registry = container.resolve(HealthRegistry)
     registry.add("database", _database_check(db))
     registry.add("migrations", _migrations_check(db))

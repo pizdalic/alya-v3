@@ -112,6 +112,15 @@ class MemorySection(_Section):
     maintenance_interval_s: float = Field(default=300.0, ge=5)
 
 
+class CharacterSection(_Section):
+    dir: Path = Path("character")
+    persona: str = Field(default="shy", pattern=r"^[a-z][a-z0-9_]{0,31}$")
+    context_budget_tokens: int = Field(default=6000, ge=1000, le=200_000)
+    recall_k: int = Field(default=8, ge=0, le=50)
+    temperature: float = Field(default=0.9, ge=0, le=2)
+    max_reply_tokens: int = Field(default=400, ge=32, le=4000)
+
+
 class Settings(_Section):
     app: AppSection = Field(default_factory=AppSection)
     telegram: TelegramSection = Field(default_factory=TelegramSection)
@@ -120,6 +129,7 @@ class Settings(_Section):
     health: HealthSection = Field(default_factory=HealthSection)
     logging: LoggingSection = Field(default_factory=LoggingSection)
     memory: MemorySection = Field(default_factory=MemorySection)
+    character: CharacterSection = Field(default_factory=CharacterSection)
 
     def problems_for_run(self) -> list[str]:
         """Чего не хватает для полноценной работы (формально конфиг при этом валиден)."""
@@ -161,6 +171,7 @@ class Settings(_Section):
             "llm.api_key": mark(self.llm.api_key),
             "llm.roles": roles,
             "storage.db_path": str(self.storage.db_path),
+            "character.persona": self.character.persona,
             "health": f"{self.health.host}:{self.health.port}" if self.health.enabled else "off",
         }
 

@@ -36,6 +36,9 @@ class Lifecycle:
         return [c.name for c in self._started]
 
     async def start(self) -> None:
+        """Идемпотентно: повторный вызов не запускает компоненты второй раз."""
+        if self._started:
+            return
         for component in self._components:
             try:
                 await component.start()

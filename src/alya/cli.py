@@ -1,4 +1,4 @@
-"""Командная строка: alya check-config | migrate | run | healthcheck | version."""
+"""Командная строка: alya check-config | migrate | run | chat | persona | healthcheck | version."""
 
 from __future__ import annotations
 
@@ -74,6 +74,78 @@ def cmd_run(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_persona(args: argparse.Namespace) -> int:
+    from alya.character.allocator import estimate_tokens
+    from alya.character.persona import available_personas, load_character
+
+    settings = _load(args)
+    cs = settings.character
+    character = load_character(cs.dir, cs.persona)
+    prompt = character.core_prompt()
+    print(f"характер: {character.persona.id} ({character.persona.title}); "
+          f"доступны: {', '.join(available_personas(cs.dir))}")
+    print(f"ядро промпта: {len(prompt)} символов, ~{estimate_tokens(prompt)} токенов\n")
+    print(prompt)
+    return EXIT_OK
+
+
+def cmd_chat(args: argparse.Namespace) -> int:
+    """Поговорить с Алей в терминале (как владелец, в личке) — без Telegram."""
+    settings = _load(args)
+    return asyncio.run(_chat_loop(settings))
+
+
+async def _chat_loop(settings: Settings) -> int:
+    from alya.app import build_character, build_memory
+    from alya.character.allocator import HistoryLine
+    from alya.character.engine import Turn
+    from alya.core.timeutil import iso, utcnow
+    from alya.memory.models import MemoryContext
+    from alya.storage.db import Database
+    from alya.storage.entities import add_member, upsert_chat, upsert_user
+    from alya.storage.migrator import apply_migrations
+
+    db = Database(settings.storage.db_path, settings.storage.busy_timeout_ms)
+    db.connect()
+    try:
+        apply_migrations(db.conn)
+        memory, _ = build_memory(settings, db)
+        engine = build_character(settings, db, memory)
+        if engine is None:
+            print("нужны llm.api_key и llm.roles.chat", file=sys.stderr)
+            return EXIT_PROBLEMS
+        uid = settings.app.owner_user_id or 1
+        now = iso(utcnow())
+
+        def seed(conn):  # type: ignore[no-untyped-def]
+            upsert_user(conn, uid, now)
+            upsert_chat(conn, uid, "private", now)
+            add_member(conn, uid, uid, now)
+
+        await db.transaction(seed)
+        ctx = MemoryContext.private(uid)
+        history: list[HistoryLine] = []
+        print("чат с Алей; пустая строка или Ctrl+D — выход")
+        while True:
+            try:
+                text = (await asyncio.to_thread(input, "ты> ")).strip()
+            except EOFError:
+                break
+            if not text:
+                break
+            reply = await engine.respond(Turn(ctx, text, "ты", list(history)))
+            history.append(HistoryLine("ты", text))
+            for msg in reply.messages:
+                print(f"аля> {msg}")
+                history.append(HistoryLine("аля", msg, is_alya=True))
+            if not reply.messages:
+                print("аля молчит…")
+            history = history[-40:]
+    finally:
+        db.close()
+    return EXIT_OK
+
+
 def cmd_healthcheck(args: argparse.Namespace) -> int:
     url = args.url
     if url is None:
@@ -98,6 +170,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("check-config", help="проверить конфигурацию").set_defaults(fn=cmd_check_config)
     sub.add_parser("migrate", help="применить миграции БД").set_defaults(fn=cmd_migrate)
     sub.add_parser("run", help="запустить").set_defaults(fn=cmd_run)
+    sub.add_parser("chat", help="поговорить с Алей в терминале").set_defaults(fn=cmd_chat)
+    sub.add_parser("persona", help="показать загруженный характер").set_defaults(fn=cmd_persona)
     hc = sub.add_parser("healthcheck", help="опросить /health")
     hc.add_argument("--url")
     hc.add_argument("--timeout", type=float, default=5.0)

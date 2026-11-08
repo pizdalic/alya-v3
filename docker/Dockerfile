@@ -15,6 +15,7 @@ RUN groupadd --system --gid 10001 alya \
  && useradd --system --uid 10001 --gid alya --home-dir /app --shell /usr/sbin/nologin alya
 WORKDIR /app
 COPY --from=build /dist/*.whl /tmp/
+COPY character /app/character
 RUN pip install --no-cache-dir /tmp/*.whl && rm -f /tmp/*.whl \
  && mkdir -p /app/runtime && chown alya:alya /app/runtime
 USER alya

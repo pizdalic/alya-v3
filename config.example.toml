@@ -45,3 +45,11 @@ recency_half_life_days = 90
 vector_backend = "numpy"            # numpy | sqlite_vec (нужен pip install .[vec])
 embedding_batch = 32
 maintenance_interval_s = 300
+
+[character]
+dir = "character"            # канонические файлы персонажа
+persona = "shy"              # характер: shy (стеснительная) | tsundere (цундере)
+context_budget_tokens = 6000 # бюджет контекста на один ответ
+recall_k = 8                 # сколько воспоминаний подтягивать
+temperature = 0.9
+max_reply_tokens = 400

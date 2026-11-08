@@ -65,7 +65,7 @@ alya/
 │   ├── telegram/      # tdlib/ (основной), bot_api/ (резервный), queue, debounce, sender
 │   ├── security/      # isolation, rate_limit, circuit_breaker, sanitizer, privacy
 │   ├── memory/        # working, short_term, long_term, search (fts, vector, rrf), forget, mirror
-│   ├── character/     # persona, emotion (vad, decay, diary), relationships, planner, responder
+│   ├── character/     # persona, emotion (VAD, decay, diary), relationships, style, allocator, planner, engine
 │   ├── dream/         # consolidation, dedup, contradictions, scheduler
 │   ├── llm/           # base (capabilities), providers/, embeddings, tokenizer, budget
 │   ├── multimodal/    # vision, stt, tts, stickers
@@ -128,7 +128,10 @@ alya/
 | memory_links | Связи записей | from_id, to_id, relation |
 | memory_embeddings | Векторы | memory_id, model_id, dim, vector BLOB (float32), created_at |
 | memory_links | Связи | from_id, to_id, relation (supports/contradicts/derived_from/about) |
-| relationships | Отношение персонажа к пользователю в чате | user_id, chat_id, affinity, trust, notes, updated_at |
+| relationships | Отношение персонажа к пользователю в чате | user_id, chat_id, affinity, trust, interactions, updated_at |
+| character_state | Текущее настроение (одна строка) | persona_id, valence, arousal, dominance, updated_at |
+| emotion_diary | Дневник изменений настроения | chat_id, user_id, reason, d_valence/d_arousal/d_dominance, valence/arousal/dominance, created_at |
+| style_window | Скользящее окно последних 100 сообщений для лимитов опечаток и эмодзи | chat_id, recent |
 | emotional_state | Текущее VAD: глобальное настроение + состояние по (пользователь, чат) | scope_key (global или user:chat), valence, arousal, dominance, label, intensity, updated_at |
 | emotional_diary | История изменений | id, scope_key, delta_vad, cause, message_id, created_at |
 | tasks | Обещания / напоминания | id, user_id, chat_id, text, due_at, status, source_message_id |

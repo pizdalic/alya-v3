@@ -4,7 +4,7 @@ Telegram-компаньон, живущий в собственном аккау
 
 ## Статус
 
-**Phase 2 — Memory Engine.** Готовы основа (конфигурация, DI, Event Bus, SQLite с миграциями, жизненный цикл, логирование без секретов, healthcheck, Docker, CI) и память: изоляция по области видимости (личка / чат / персонаж), уровни working / short / long с TTL, поиск FTS5 + эмбеддинги + RRF (без эмбеддингов работает только FTS5), Forget API с журналом удалений, Markdown-зеркало только для чтения. Telegram и персонаж появятся в следующих фазах — см. [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
+**Phase 3 — Character Engine.** Готовы основа (конфигурация, DI, Event Bus, SQLite с миграциями, логирование без секретов, healthcheck, Docker, CI), память (изоляция личка / чат / персонаж, уровни с TTL, поиск FTS5 + эмбеддинги + RRF, Forget API, Markdown-зеркало) и персонаж: Аля, 19 лет, студентка; два характера на выбор (`shy` — стеснительная и мягкая, `tsundere` — цундере), настроение VAD с плавным затуханием и дневником, отношения к каждому собеседнику, двухэтапная генерация (план в JSON → ответ), стиль (строчные, короткие сообщения, редкие эмодзи и опечатки — не больше 5 на 100 сообщений), бюджет контекста. Telegram появится в Phase 4 — см. [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
 
 ## Быстрый старт (Ubuntu, Docker)
 
@@ -28,7 +28,13 @@ alya migrate
 pytest -q && ruff check . && mypy
 ```
 
-Команды: `alya check-config`, `alya migrate`, `alya run`, `alya healthcheck`, `alya version`.
+Команды: `alya check-config`, `alya migrate`, `alya run`, `alya chat`, `alya persona`, `alya healthcheck`, `alya version`.
+
+`alya chat` — поговорить с Алей прямо в терминале (как владелец, в личке), без Telegram. Нужны `llm.api_key` и `[llm.roles.chat]`; `[llm.roles.utility]` (если задана) используется для планирования ответа.
+
+Характер переключается в конфиге: `[character] persona = "tsundere"` или переменной `ALYA_CHARACTER__PERSONA=tsundere`. Файлы персонажа — в `character/`.
+
+Честность: на шутливый вопрос «ты бот?» Аля может отшутиться, но на серьёзный и прямой вопрос всегда признаёт, что она ИИ-персонаж (это не настраивается). Флирт — только с владельцем, с остальными она дружелюбна; 18+ нет.
 
 Конфигурация: `config.toml` + переменные окружения `ALYA_<СЕКЦИЯ>__<КЛЮЧ>` (окружение важнее файла). Секреты (`api_hash`, `api_key`, `bot_token`) принимаются только из окружения.
 
