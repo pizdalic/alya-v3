@@ -17,6 +17,9 @@ from alya.character.engine import CharacterEngine
 from alya.character.persona import Character, load_character
 from alya.character.relationships import RelationshipStore
 from alya.character.style import Stylizer
+from alya.dream.engine import DreamConfig, DreamEngine
+from alya.dream.judge import LLMJudge
+from alya.dream.scheduler import DreamScheduler
 from alya.llm.chat import ChatModel, OpenAICompatibleChat
 from alya.llm.openai_compat import OpenAICompatibleEmbedder
 from alya.memory.indexer import Embedder, EmbeddingIndexer
@@ -149,6 +152,26 @@ def build_chat_model(settings: Settings, role_name: str) -> ChatModel | None:
                                 timeout_s=settings.llm.timeout_s)
 
 
+def build_dream(settings: Settings, db: Database, memory: MemoryService) -> DreamEngine:
+    """Движок Dream. Без LLM он только сливает явные дубли и следит за устареванием."""
+    ds = settings.dream
+    judge = None
+    if ds.use_llm:
+        chat = build_chat_model(settings, "utility") or build_chat_model(settings, "chat")
+        judge = LLMJudge(chat) if chat is not None else None
+    embedding = settings.llm.roles.get("embedding")
+    config = DreamConfig(
+        dup_threshold=ds.dup_threshold, exact_threshold=ds.exact_threshold,
+        related_threshold=ds.related_threshold, max_cluster=ds.max_cluster,
+        max_clusters_per_run=ds.max_clusters_per_run, max_pairs_per_run=ds.max_pairs_per_run,
+        stale_days=ds.stale_days, decay_step=ds.decay_step,
+        confidence_floor=ds.confidence_floor, contradiction_factor=ds.contradiction_factor,
+        retention_days=ds.retention_days,
+    )
+    return DreamEngine(db, judge, model_id=embedding.model if embedding else None,
+                       config=config, on_change=memory.refresh_mirror)
+
+
 def build_character(settings: Settings, db: Database, memory: MemoryService | None,
                     character: Character | None = None) -> CharacterEngine | None:
     """Персонаж грузится и проверяется всегда; движок — только если задана модель chat."""
@@ -241,6 +264,14 @@ def build_app(settings: Settings) -> App:
     lifecycle.add(StorageComponent(db))
     lifecycle.add(MemoryMaintenance(memory_service, indexer,
                                     settings.memory.maintenance_interval_s))
+    if settings.dream.enabled:
+        dream = build_dream(settings, db, memory_service)
+        ds = settings.dream
+        lifecycle.add(DreamScheduler(
+            dream, timezone=settings.app.timezone, hour_local=ds.hour_local,
+            check_interval_s=ds.check_interval_s,
+            new_memories_threshold=ds.new_memories_threshold, min_gap_hours=ds.min_gap_hours))
+        registry.add("dream", _dream_check(dream))
     _add_telegram(lifecycle, settings, db, engine)
     if settings.health.enabled:
         lifecycle.add(HealthServer(registry, settings.health.host, settings.health.port))
@@ -283,3 +314,15 @@ def _migrations_check(db: Database) -> HealthCheck:
 
     return check
 
+
+
+def _dream_check(engine: DreamEngine) -> HealthCheck:
+    """Последний прогон Dream; ошибка консолидации не роняет здоровье, но видна в detail."""
+
+    async def check() -> CheckResult:
+        last = await engine.last_run()
+        if last is None:
+            return CheckResult(True, "ещё не запускался")
+        return CheckResult(True, f"прогон {last['id']}: {last['status']} ({last['started_at']})")
+
+    return check

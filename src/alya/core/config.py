@@ -14,7 +14,8 @@ from typing import Any, Literal
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, field_validator
+from pydantic import (BaseModel, ConfigDict, Field, SecretStr, ValidationError,
+                      field_validator, model_validator)
 
 from alya.core.errors import ConfigError
 
@@ -139,6 +140,34 @@ class CharacterSection(_Section):
     max_reply_tokens: int = Field(default=400, ge=32, le=4000)
 
 
+class DreamSection(_Section):
+    """Dream Engine: фоновая консолидация памяти (Phase 5)."""
+
+    enabled: bool = True
+    use_llm: bool = True
+    hour_local: int = Field(default=4, ge=0, le=23)
+    check_interval_s: float = Field(default=600.0, ge=10)
+    new_memories_threshold: int = Field(default=200, ge=1)
+    min_gap_hours: float = Field(default=6.0, ge=0, le=24 * 7)
+    dup_threshold: float = Field(default=0.90, gt=0, le=1)
+    exact_threshold: float = Field(default=0.97, gt=0, le=1)
+    related_threshold: float = Field(default=0.60, gt=0, le=1)
+    max_cluster: int = Field(default=8, ge=2, le=50)
+    max_clusters_per_run: int = Field(default=50, ge=0, le=10_000)
+    max_pairs_per_run: int = Field(default=40, ge=0, le=10_000)
+    stale_days: float = Field(default=60.0, gt=0)
+    decay_step: float = Field(default=0.1, ge=0, le=1)
+    confidence_floor: float = Field(default=0.2, ge=0, le=1)
+    contradiction_factor: float = Field(default=0.6, gt=0, le=1)
+    retention_days: float = Field(default=30.0, ge=0)
+
+    @model_validator(mode="after")
+    def _check_thresholds(self) -> DreamSection:
+        if not self.related_threshold < self.dup_threshold <= self.exact_threshold:
+            raise ValueError("нужно related_threshold < dup_threshold <= exact_threshold")
+        return self
+
+
 class Settings(_Section):
     app: AppSection = Field(default_factory=AppSection)
     telegram: TelegramSection = Field(default_factory=TelegramSection)
@@ -148,6 +177,7 @@ class Settings(_Section):
     logging: LoggingSection = Field(default_factory=LoggingSection)
     memory: MemorySection = Field(default_factory=MemorySection)
     character: CharacterSection = Field(default_factory=CharacterSection)
+    dream: DreamSection = Field(default_factory=DreamSection)
 
     def problems_for_run(self) -> list[str]:
         """Чего не хватает для полноценной работы (формально конфиг при этом валиден)."""

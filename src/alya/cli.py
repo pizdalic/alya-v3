@@ -1,4 +1,4 @@
-"""Командная строка: alya check-config | migrate | run | login | chat | persona | healthcheck | version."""
+"""Командная строка: alya check-config | migrate | run | login | chat | persona | dream | healthcheck | version."""
 
 from __future__ import annotations
 
@@ -171,6 +171,28 @@ async def _chat_loop(settings: Settings) -> int:
     return EXIT_OK
 
 
+def cmd_dream(args: argparse.Namespace) -> int:
+    """Один прогон консолидации памяти вручную (можно при работающей Але)."""
+    return asyncio.run(_dream(_load(args)))
+
+
+async def _dream(settings: Settings) -> int:
+    from alya.app import build_dream, build_memory
+    from alya.storage.db import Database
+    from alya.storage.migrator import apply_migrations
+
+    db = Database(settings.storage.db_path, settings.storage.busy_timeout_ms)
+    db.connect()
+    try:
+        apply_migrations(db.conn)
+        memory, _ = build_memory(settings, db)
+        report = await build_dream(settings, db, memory).run("manual")
+    finally:
+        db.close()
+    print(json.dumps(report.stats(), ensure_ascii=False))
+    return EXIT_OK
+
+
 def cmd_healthcheck(args: argparse.Namespace) -> int:
     url = args.url
     if url is None:
@@ -198,6 +220,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("login", help="войти в аккаунт Telegram").set_defaults(fn=cmd_login)
     sub.add_parser("chat", help="поговорить с Алей в терминале").set_defaults(fn=cmd_chat)
     sub.add_parser("persona", help="показать загруженный характер").set_defaults(fn=cmd_persona)
+    sub.add_parser("dream", help="один прогон консолидации памяти").set_defaults(fn=cmd_dream)
     hc = sub.add_parser("healthcheck", help="опросить /health")
     hc.add_argument("--url")
     hc.add_argument("--timeout", type=float, default=5.0)

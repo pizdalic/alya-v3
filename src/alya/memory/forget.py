@@ -1,6 +1,7 @@
 """Forget API (ADR-0010): удаление сразу из всех хранилищ + журнал удалений без содержимого.
 
-Хранилища: memories, memories_fts (триггер), memory_embeddings и memory_links (каскад),
+Хранилища: memories, memories_fts (триггер), memory_embeddings, memory_links и
+dream_checked_pairs (каскад),
 messages, outbox, личные чаты, Markdown-зеркало (обновляет MemoryService после коммита).
 Те же функции удаления повторно применяются к БД, восстановленной из бэкапа.
 """
@@ -38,9 +39,24 @@ def _marks(n: int) -> str:
     return ",".join("?" * n)
 
 
+_CHAIN = (
+    "WITH RECURSIVE chain(id) AS (SELECT ? UNION "
+    "SELECT m.id FROM memories m JOIN chain c ON m.superseded_by = c.id) "
+)
+
+
 def delete_memory_sync(conn: sqlite3.Connection, memory_id: str) -> ForgetReport:
+    """Удаляет запись и всю цепочку источников, которые она заменила (слияния Dream).
+
+    Иначе после удаления сводной записи ON DELETE SET NULL «воскресил» бы источники.
+    """
     keys = scope_keys_where(conn, "m.id = ?", [memory_id])
-    n = conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,)).rowcount
+    ids = [r[0] for r in conn.execute(_CHAIN + "SELECT id FROM chain", (memory_id,)).fetchall()]
+    n = 0
+    for start in range(0, len(ids), 500):
+        chunk = ids[start:start + 500]
+        n += conn.execute(f"DELETE FROM memories WHERE id IN ({_marks(len(chunk))})",
+                          chunk).rowcount
     return ForgetReport("memory", memory_id, n, 0, keys)
 
 
