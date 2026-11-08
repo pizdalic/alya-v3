@@ -9,6 +9,19 @@ data_dir = "runtime"
 [telegram]
 mode = "userbot"              # userbot | bot | none
 session_dir = "runtime/td_database"
+# database_encryption_key — секрет, только через ALYA_TELEGRAM__DATABASE_ENCRYPTION_KEY
+alya_names = ["аля", "алька", "алечка", "алюша", "алюшка"]
+debounce_s = 2.0               # склейка быстрых сообщений подряд
+debounce_max_wait_s = 8.0
+thread_ttl_s = 300             # сколько живёт «нить» разговора в группе без реплая
+group_context_hours = 48       # чужие сообщения в группах хранятся 24–72 ч
+private_history_days = 30
+strangers = "known"            # known (контакты и общие группы) | all | owner_only
+gray_zone_llm = true           # спорные случаи «это мне?» решает модель utility
+replies_per_10min = 20         # на собеседника в чате, владелец без лимита
+chat_send_interval_s = 1.0
+typing_chars_per_s = 12
+max_typing_delay_s = 6
 
 [llm]
 base_url = "https://openrouter.ai/api/v1"

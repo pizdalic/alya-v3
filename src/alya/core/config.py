@@ -20,7 +20,12 @@ from alya.core.errors import ConfigError
 
 ENV_PREFIX = "ALYA_"
 SECRET_FIELDS: frozenset[tuple[str, str]] = frozenset(
-    {("telegram", "api_hash"), ("telegram", "bot_token"), ("llm", "api_key")}
+    {
+        ("telegram", "api_hash"),
+        ("telegram", "bot_token"),
+        ("telegram", "database_encryption_key"),
+        ("llm", "api_key"),
+    }
 )
 MODEL_ROLES: tuple[str, ...] = ("chat", "utility", "embedding", "vision", "stt", "tts", "image")
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
@@ -52,6 +57,19 @@ class TelegramSection(_Section):
     api_hash: SecretStr | None = None
     bot_token: SecretStr | None = None
     session_dir: Path = Path("runtime/td_database")
+    database_encryption_key: SecretStr | None = None
+    alya_names: tuple[str, ...] = ("аля", "алька", "алечка", "алюша", "алюшка")
+    debounce_s: float = Field(default=2.0, ge=0, le=10)
+    debounce_max_wait_s: float = Field(default=8.0, ge=0.5, le=60)
+    thread_ttl_s: float = Field(default=300.0, ge=30, le=3600)
+    group_context_hours: int = Field(default=48, ge=24, le=72)
+    private_history_days: int = Field(default=30, ge=1, le=365)
+    strangers: Literal["known", "all", "owner_only"] = "known"
+    gray_zone_llm: bool = True
+    replies_per_10min: int = Field(default=20, ge=1, le=500)
+    chat_send_interval_s: float = Field(default=1.0, ge=0, le=60)
+    typing_chars_per_s: float = Field(default=12.0, gt=0, le=200)
+    max_typing_delay_s: float = Field(default=6.0, ge=0, le=60)
 
 
 class ModelRole(_Section):
@@ -152,7 +170,8 @@ class Settings(_Section):
 
     def secret_values(self) -> list[str]:
         """Значения секретов — для фильтра логов."""
-        values = [self.telegram.api_hash, self.telegram.bot_token, self.llm.api_key]
+        values = [self.telegram.api_hash, self.telegram.bot_token,
+                  self.telegram.database_encryption_key, self.llm.api_key]
         return [v.get_secret_value() for v in values if v is not None]
 
     def summary(self) -> dict[str, str]:

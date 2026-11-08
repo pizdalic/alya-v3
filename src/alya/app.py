@@ -205,7 +205,7 @@ class App:
             problems = self.settings.problems_for_run()
             for problem in problems:
                 log.warning("конфигурация: %s", problem)
-            log.info("основа запущена; Telegram-слой появится в Phase 4")
+            log.info("основа запущена")
             await self.lifecycle.run_until_stopped()
         finally:
             await self.lifecycle.stop()
@@ -241,9 +241,27 @@ def build_app(settings: Settings) -> App:
     lifecycle.add(StorageComponent(db))
     lifecycle.add(MemoryMaintenance(memory_service, indexer,
                                     settings.memory.maintenance_interval_s))
+    _add_telegram(lifecycle, settings, db, engine)
     if settings.health.enabled:
         lifecycle.add(HealthServer(registry, settings.health.host, settings.health.port))
     return App(settings=settings, container=container, lifecycle=lifecycle)
+
+
+def _add_telegram(lifecycle: Lifecycle, settings: Settings, db: Database,
+                  engine: CharacterEngine | None) -> None:
+    tg = settings.telegram
+    if tg.mode == "none":
+        return
+    if tg.mode == "bot":
+        log.warning("режим telegram.mode=bot пока не реализован; Telegram не подключён")
+        return
+    if tg.api_id is None or tg.api_hash is None or engine is None:
+        log.warning("Telegram не подключён: нужны api_id, api_hash и модель chat")
+        return
+    from alya.telegram.service import TelegramService
+
+    classifier = build_chat_model(settings, "utility") or build_chat_model(settings, "chat")
+    lifecycle.add(TelegramService(settings, db, engine, classifier_chat=classifier))
 
 
 def _database_check(db: Database) -> HealthCheck:
