@@ -59,6 +59,25 @@ vector_backend = "numpy"            # numpy | sqlite_vec (нужен pip install
 embedding_batch = 32
 maintenance_interval_s = 300
 
+[dream]
+enabled = true                     # фоновая консолидация памяти
+use_llm = true                     # слияние формулировок и поиск противоречий моделью utility (или chat)
+hour_local = 4                     # ночной прогон после этого часа по app.timezone
+check_interval_s = 600
+new_memories_threshold = 200       # внеплановый прогон, если накопилось столько новых записей
+min_gap_hours = 6
+dup_threshold = 0.90               # похожесть для кластера (косинус эмбеддингов или пересечение слов)
+exact_threshold = 0.97             # явный дубль: сливается без LLM
+related_threshold = 0.60           # похожие, но не дубли: проверка на противоречие
+max_cluster = 8
+max_clusters_per_run = 50
+max_pairs_per_run = 40
+stale_days = 60                    # долговременный факт без использования теряет уверенность
+decay_step = 0.1
+confidence_floor = 0.2
+contradiction_factor = 0.6         # множитель уверенности для опровергнутой записи
+retention_days = 30                # сколько хранить заменённые источники
+
 [character]
 dir = "character"            # канонические файлы персонажа
 persona = "shy"              # характер: shy (стеснительная) | tsundere (цундере)

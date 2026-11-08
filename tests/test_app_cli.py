@@ -56,7 +56,7 @@ class CliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             env = {"ALYA_STORAGE__DB_PATH": str(Path(tmp) / "m.sqlite3")}
             code, out, _ = run_cli("migrate", env=env)
-            self.assertEqual((code, out.strip()), (EXIT_OK, "применены: [1, 2, 3]"))
+            self.assertEqual((code, out.strip()), (EXIT_OK, "применены: [1, 2, 3, 4]"))
             code, out, _ = run_cli("migrate", env=env)
             self.assertEqual(out.strip(), "схема уже актуальна")
 
