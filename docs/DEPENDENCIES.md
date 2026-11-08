@@ -20,6 +20,14 @@
 | tdjson | 1.8.69 | не проверено | не проверено | заявлены prebuilt-бинарники для Linux/Windows/macOS; используется Pytdbot | **основной**: prebuilt libtdjson для userbot |
 | Pytdbot | 0.10.1 (стабильная); есть 1.0.0b1 | не проверено | 3.10+ | асинхронная обёртка TDLib для пользователей и ботов; установка с extra [tdjson] | **основной** userbot-адаптер; выбор между 0.10.x и 1.0 — в Phase 4 |
 
+## API (проверено по документации)
+
+| Сервис | Эндпоинты | Источник |
+|---|---|---|
+| OpenRouter | /chat/completions, /embeddings, /audio/transcriptions (STT), /audio/speech (TTS, OpenAI-compatible), /images | openrouter.ai/docs, 2026-11-08 |
+
+Конкретные модели выбирает владелец; совместимость моделей с tool calling и мультимодальностью проверяется при старте.
+
 ## Не проверено (кандидаты)
 
 | Пакет | Роль | Альтернатива |
