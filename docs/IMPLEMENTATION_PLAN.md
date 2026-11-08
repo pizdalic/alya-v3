@@ -9,7 +9,7 @@
 | 1 Foundation | pyproject, src-layout, конфиг (TOML + .env, валидация), DI, Event Bus, логирование без PII, SQLite WAL + миграции, lifecycle, healthcheck, Dockerfile (non-root), CI (lint, types, tests) | — | M |
 | 2 Memory Engine | три уровня памяти, scope-репозитории, FTS5, эмбеддинги в BLOB, NumPy cosine, RRF, Markdown-зеркало, Forget API, тесты изоляции | 1 | L |
 | 3 Character Engine | персонаж с нуля вместе с владельцем, загрузка персонажа, глобальное настроение + VAD + decay, emotional diary, отношения, двухэтапная генерация, Context Allocator | 2, LLM-слой (минимум один провайдер) | L |
-| 4 Telegram Layer | TDLib userbot (Pytdbot + tdjson): авторизация @AlysiaNya, per-chat очередь, debounce, typing, burst, outbox, FloodWait, фильтр собственных сообщений, политика незнакомцев, правки/удаления сообщений, группы: Addressee Detector (явные сигналы + нити разговора + LLM-классификатор серой зоны), privacy-команды; Bot API адаптер — резервный транспорт и тестовый стенд | 1–3 | L |
+| 4 Telegram Layer | TDLib userbot (свой клиент + tdjson): авторизация @AlysiaNya, per-chat очередь, debounce, typing, burst, outbox, FloodWait, фильтр собственных сообщений, политика незнакомцев, правки/удаления сообщений, группы: Addressee Detector (явные сигналы + нити разговора + LLM-классификатор серой зоны), privacy-команды; Bot API адаптер — резервный транспорт и тестовый стенд | 1–3 | L |
 | 5 Dream Engine | консолидация, дедупликация, противоречия, provenance, атомарность, тесты восстановления после сбоя | 2, 3 | M |
 | 6 Multimodal & Tools | vision, STT, TTS, генерация фото, стикеры/реакции, веб-поиск, чтение каналов, вступление по ссылке и bio/аватар по команде владельца, лимиты размеров, fallback | 4 | M |
 | 7 Autonomy | проактивность в личке и инициатива в группах (ADR-0008: quiet hours, cooldown, лимиты), напоминания, плагины с разрешениями, модерация dry_run | 4, 5 | M |
@@ -28,3 +28,8 @@
 - **Phase 2:** тест «пользователь A не видит память пользователя B» в личке и группе; Forget удаляет запись из всех хранилищ (проверка по каждому); поиск работает без эмбеддингов; NumPy и sqlite-vec дают совместимые top-k.
 - **Phase 4:** быстрые сообщения склеиваются; FloodWait соблюдается; Аля распознаёт ответ себе без reply и не вмешивается в чужие разговоры (сценарные тесты); перезапуск не теряет outbox и не требует повторной авторизации TDLib.
 - **Phase 5:** прерывание консолидации на середине не портит данные.
+
+## Ход работ
+
+- Phase 4 — сделано: клиент TDLib, alya login, Addressee Detector с нитями, debounce, outbox и Sender с FloodWait, политика незнакомцев, правки и удаления. Отложено: Bot API адаптер, privacy-команды в Telegram (перенесены в Phase 8), каналы (Phase 7). Проверено только на фейках: TDLib в песочнице недоступен, первая живая проверка — alya login на сервере.
+
