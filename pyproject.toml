@@ -9,10 +9,11 @@ description = "Аля — Telegram-компаньон"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
-dependencies = ["pydantic>=2.7,<3"]
+dependencies = ["pydantic>=2.7,<3", "numpy>=1.26"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11"]
+vec = ["sqlite-vec>=0.1.9"]
 
 [project.scripts]
 alya = "alya.cli:main"

@@ -4,7 +4,7 @@ Telegram-компаньон, живущий в собственном аккау
 
 ## Статус
 
-**Phase 1 — Foundation.** Готова основа: конфигурация, DI, Event Bus, хранилище SQLite с миграциями, жизненный цикл, логирование без секретов и личных данных, healthcheck, Docker, CI. Telegram, память и персонаж появятся в следующих фазах — см. [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
+**Phase 2 — Memory Engine.** Готовы основа (конфигурация, DI, Event Bus, SQLite с миграциями, жизненный цикл, логирование без секретов, healthcheck, Docker, CI) и память: изоляция по области видимости (личка / чат / персонаж), уровни working / short / long с TTL, поиск FTS5 + эмбеддинги + RRF (без эмбеддингов работает только FTS5), Forget API с журналом удалений, Markdown-зеркало только для чтения. Telegram и персонаж появятся в следующих фазах — см. [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
 
 ## Быстрый старт (Ubuntu, Docker)
 

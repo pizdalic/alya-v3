@@ -68,6 +68,11 @@ class Database:
         async with self._lock:
             return await asyncio.to_thread(self._fetchall, sql, params)
 
+    async def read[T](self, fn: Callable[[sqlite3.Connection], T]) -> T:
+        """Выполнить функцию чтения под общим замком (без транзакции записи)."""
+        async with self._lock:
+            return await asyncio.to_thread(fn, self.conn)
+
     async def execute(self, sql: str, params: Params = ()) -> int:
         """Выполнить одну команду в транзакции. Возвращает rowcount."""
         return await self.transaction(lambda c: c.execute(sql, params).rowcount)

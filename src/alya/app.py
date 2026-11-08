@@ -5,11 +5,19 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from datetime import timedelta
 
 from alya.core.config import Settings
 from alya.core.container import Container
 from alya.core.events import Event, EventBus
 from alya.core.lifecycle import Lifecycle
+from alya.llm.openai_compat import OpenAICompatibleEmbedder
+from alya.memory.indexer import Embedder, EmbeddingIndexer
+from alya.memory.mirror import MarkdownMirror
+from alya.memory.repository import LayerPolicy, MemoryRepository
+from alya.memory.search import MemorySearch
+from alya.memory.service import MemoryService
+from alya.memory.vectors import NumpyBackend, SqliteVecBackend, VectorBackend, load_sqlite_vec
 from alya.observability.health import Check as HealthCheck
 from alya.observability.health import CheckResult, HealthRegistry, HealthServer
 from alya.storage.db import Database
@@ -51,6 +59,99 @@ class EventBusComponent:
         await self._bus.aclose()
 
 
+class MemoryMaintenance:
+    """Фоновое обслуживание памяти: удаление истёкшего и досчёт эмбеддингов."""
+
+    name = "memory-maintenance"
+
+    def __init__(self, service: MemoryService, indexer: EmbeddingIndexer | None,
+                 interval_s: float) -> None:
+        self._service = service
+        self._indexer = indexer
+        self._interval = interval_s
+        self._task: asyncio.Task[None] | None = None
+
+    async def run_once(self) -> None:
+        memories, messages = await self._service.purge_expired()
+        if memories or messages:
+            log.info("удалено по сроку: память=%d сообщения=%d", memories, messages)
+        if self._indexer is not None:
+            stored = await self._indexer.embed_pending()
+            if stored:
+                log.info("посчитано эмбеддингов: %d", stored)
+
+    async def _loop(self) -> None:
+        while True:
+            try:
+                await self.run_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("ошибка обслуживания памяти")
+            await asyncio.sleep(self._interval)
+
+    async def start(self) -> None:
+        self._task = asyncio.get_running_loop().create_task(self._loop())
+
+    async def stop(self) -> None:
+        if self._task is not None:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            self._task = None
+
+
+def build_embedder(settings: Settings) -> Embedder | None:
+    role = settings.llm.roles.get("embedding")
+    if role is None or settings.llm.api_key is None:
+        return None
+    return OpenAICompatibleEmbedder(
+        role.base_url or settings.llm.base_url,
+        settings.llm.api_key.get_secret_value(),
+        role.model,
+        timeout_s=settings.llm.timeout_s,
+        batch_size=settings.memory.embedding_batch,
+    )
+
+
+def build_memory(settings: Settings, db: Database) -> tuple[MemoryService, EmbeddingIndexer | None]:
+    mem = settings.memory
+    repo = MemoryRepository(db, LayerPolicy(timedelta(hours=mem.working_ttl_hours),
+                                            timedelta(days=mem.short_ttl_days)))
+    embedder = build_embedder(settings)
+    backend: VectorBackend = NumpyBackend()
+    if mem.vector_backend == "sqlite_vec":
+        backend = _SqliteVecLazy(db)
+    search = MemorySearch(repo, embedder, backend, rrf_k=mem.rrf_k,
+                          candidates=mem.search_candidates,
+                          half_life_days=mem.recency_half_life_days)
+    mirror = MarkdownMirror(mem.mirror_dir) if mem.mirror_enabled else None
+    indexer = (EmbeddingIndexer(db, embedder, batch_size=mem.embedding_batch)
+               if embedder is not None else None)
+    return MemoryService(repo, search, mirror), indexer
+
+
+class _SqliteVecLazy:
+    """sqlite-vec подключается при первом запросе; если его нет — честный откат на NumPy."""
+
+    name = "sqlite_vec"
+
+    def __init__(self, db: Database) -> None:
+        self._db = db
+        self._impl: VectorBackend | None = None
+
+    def top_k(self, conn, ctx, query, model_id, k, now_iso):  # type: ignore[no-untyped-def]
+        if self._impl is None:
+            if load_sqlite_vec(conn):
+                self._impl = SqliteVecBackend()
+            else:
+                log.warning("sqlite-vec недоступен, используется NumPy")
+                self._impl = NumpyBackend()
+        return self._impl.top_k(conn, ctx, query, model_id, k, now_iso)
+
+
 @dataclass(slots=True)
 class App:
     settings: Settings
@@ -81,8 +182,10 @@ def build_app(settings: Settings) -> App:
         lambda c: Database(settings.storage.db_path, settings.storage.busy_timeout_ms),
     )
     container.register(HealthRegistry, lambda c: HealthRegistry())
+    container.register(MemoryService, lambda c: memory_service)
 
     db = container.resolve(Database)
+    memory_service, indexer = build_memory(settings, db)
     registry = container.resolve(HealthRegistry)
     registry.add("database", _database_check(db))
     registry.add("migrations", _migrations_check(db))
@@ -90,6 +193,8 @@ def build_app(settings: Settings) -> App:
     lifecycle = Lifecycle()
     lifecycle.add(EventBusComponent(container.resolve(EventBus)))
     lifecycle.add(StorageComponent(db))
+    lifecycle.add(MemoryMaintenance(memory_service, indexer,
+                                    settings.memory.maintenance_interval_s))
     if settings.health.enabled:
         lifecycle.add(HealthServer(registry, settings.health.host, settings.health.port))
     return App(settings=settings, container=container, lifecycle=lifecycle)

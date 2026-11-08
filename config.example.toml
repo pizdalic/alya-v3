@@ -33,3 +33,15 @@ port = 8080
 [logging]
 level = "INFO"
 format = "json"               # json | text
+
+[memory]
+mirror_enabled = true               # Markdown-зеркало только для чтения
+mirror_dir = "runtime/memory"
+working_ttl_hours = 6
+short_ttl_days = 14
+rrf_k = 60
+search_candidates = 50
+recency_half_life_days = 90
+vector_backend = "numpy"            # numpy | sqlite_vec (нужен pip install .[vec])
+embedding_batch = 32
+maintenance_interval_s = 300

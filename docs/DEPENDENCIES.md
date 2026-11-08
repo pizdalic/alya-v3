@@ -33,7 +33,7 @@
 | Пакет | Роль | Альтернатива |
 |---|---|---|
 | pydantic, pydantic-settings | валидация конфига и моделей | dataclasses + ручная валидация |
-| numpy | cosine fallback (обязательный) | — |
+| numpy | cosine fallback (обязательный, подключён в Phase 2) | — |
 | aiosqlite | асинхронный доступ к SQLite | sqlite3 в отдельном потоке |
 | httpx | HTTP-клиент провайдеров | aiohttp (уже придёт с aiogram) |
 | openai, anthropic, google-genai | официальные SDK | прямые HTTP-вызовы через httpx |

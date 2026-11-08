@@ -33,7 +33,7 @@ class MigrationTests(unittest.TestCase):
         self.assertTrue(self.db.fts5_available())
 
     def test_apply_idempotent(self) -> None:
-        self.assertEqual(apply_migrations(self.db.conn), [1])
+        self.assertEqual(apply_migrations(self.db.conn), [1, 2])
         self.assertTrue(TABLES <= tables(self.db.conn))
         self.assertEqual(apply_migrations(self.db.conn), [])
 

@@ -122,8 +122,10 @@ alya/
 | chats | Чаты | tg_chat_id (PK), type (private/group/supergroup), title, settings_json, proactive_enabled |
 | chat_members | Связь пользователь–чат | chat_id, user_id, first_seen, last_seen |
 | messages | История (с TTL) | id, chat_id, user_id, tg_message_id, direction, text, media_ref, context_only, addressed_to_alya, edited_at, created_at, expires_at |
-| memories | Воспоминания всех уровней | id (ULID), owner_user_id, chat_id, scope (private / chat / character), layer (working/short/long), category, content, provenance_json, confidence, created_at, updated_at, expires_at, is_permanent, superseded_by |
-| memories_fts | FTS5 (external content) | rowid ↔ memories, content |
+| memories | Воспоминания всех уровней | seq (rowid для FTS), id (ULID), scope (private / chat / character), owner_user_id, chat_id, subject_user_id, layer (working/short/long), category, content, search_text (генерируемая, «ё»→«е»), provenance, confidence, is_permanent, usage_count, last_used_at, superseded_by, created_at, updated_at, expires_at. CHECK-ограничение не даёт создать запись с неверной комбинацией scope/owner/chat |
+| memories_fts | FTS5 (external content, триггеры) | rowid = memories.seq, search_text |
+| memory_embeddings | Векторы float32 LE в BLOB | memory_id, model_id, dim, vector |
+| memory_links | Связи записей | from_id, to_id, relation |
 | memory_embeddings | Векторы | memory_id, model_id, dim, vector BLOB (float32), created_at |
 | memory_links | Связи | from_id, to_id, relation (supports/contradicts/derived_from/about) |
 | relationships | Отношение персонажа к пользователю в чате | user_id, chat_id, affinity, trust, notes, updated_at |
@@ -140,7 +142,7 @@ alya/
 ## 6. Поиск памяти
 
 - **Полнотекстовый:** SQLite FTS5. Пользовательский текст никогда не передаётся как FTS-синтаксис: токены экранируются и берутся в кавычки.
-- **Семантический (обязательный fallback):** эмбеддинги float32 в BLOB, загрузка кандидатов только в рамках scope, косинус на NumPy. При малом числе записей на scope (ожидаемо — сотни/тысячи) полный перебор приемлем; это нужно подтвердить бенчмарком в Phase 2.
+- **Семантический (обязательный fallback):** эмбеддинги float32 в BLOB, загрузка кандидатов только в рамках scope, косинус на NumPy. При малом числе записей на scope (ожидаемо — сотни/тысячи) полный перебор приемлем; бенчмарк Phase 2 (scripts/bench_vectors.py, dim 1536, top-50): 1k — ~11 мс, 5k — ~62 мс, 20k — ~235 мс на запрос.
 - **Ускорители (опционально):** sqlite-vec, FAISS — включаются флагом, результаты сверяются с NumPy в тестах.
 - **Слияние:** Reciprocal Rank Fusion, score = Σ 1/(k + rank), k = 60 по умолчанию, плюс модификаторы confidence, свежести и usage.
 - Векторы сравниваются только с `model_id` текущей модели; при смене модели — фоновая переиндексация, до её окончания работает FTS5.

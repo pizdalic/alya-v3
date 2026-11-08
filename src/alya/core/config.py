@@ -99,6 +99,19 @@ class LoggingSection(_Section):
     format: Literal["json", "text"] = "json"
 
 
+class MemorySection(_Section):
+    mirror_enabled: bool = True
+    mirror_dir: Path = Path("runtime/memory")
+    working_ttl_hours: float = Field(default=6.0, gt=0, le=24 * 7)
+    short_ttl_days: float = Field(default=14.0, gt=0, le=365)
+    rrf_k: int = Field(default=60, ge=1, le=1000)
+    search_candidates: int = Field(default=50, ge=1, le=1000)
+    recency_half_life_days: float = Field(default=90.0, gt=0)
+    vector_backend: Literal["numpy", "sqlite_vec"] = "numpy"
+    embedding_batch: int = Field(default=32, ge=1, le=512)
+    maintenance_interval_s: float = Field(default=300.0, ge=5)
+
+
 class Settings(_Section):
     app: AppSection = Field(default_factory=AppSection)
     telegram: TelegramSection = Field(default_factory=TelegramSection)
@@ -106,6 +119,7 @@ class Settings(_Section):
     storage: StorageSection = Field(default_factory=StorageSection)
     health: HealthSection = Field(default_factory=HealthSection)
     logging: LoggingSection = Field(default_factory=LoggingSection)
+    memory: MemorySection = Field(default_factory=MemorySection)
 
     def problems_for_run(self) -> list[str]:
         """Чего не хватает для полноценной работы (формально конфиг при этом валиден)."""
