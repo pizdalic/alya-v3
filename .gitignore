@@ -1,0 +1,21 @@
+# secrets & runtime
+.env
+config.toml
+runtime/
+data/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.session
+memory_mirror/
+backups/
+logs/
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
