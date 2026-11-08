@@ -4,7 +4,7 @@
 
 ## 1. Принципы
 
-1. **Надёжное ядро раньше возможностей.** Приложение обязано работать без TDLib, без FAISS/sqlite-vec и без мультимодальных провайдеров.
+1. **Надёжное ядро раньше возможностей.** Приложение обязано работать без FAISS/sqlite-vec и без мультимодальных провайдеров. Транспорт Telegram заменяем: TDLib userbot — основной, Bot API — резервный (это сохраняет критерий приёмки «работает без TDLib»).
 2. **Изоляция по умолчанию.** Любое чтение памяти требует явного scope (пользователь + чат). Запроса «без scope» в репозитории нет.
 3. **Данные — не инструкции.** Сообщения, память, медиа, ответы инструментов и веб-результаты никогда не повышают привилегии и не меняют базовый характер.
 4. **Полномочия — только по проверенному Telegram ID**, а не по имени, нику, пересылке или тексту (принцип из alya-v2).
@@ -16,8 +16,8 @@
 
 ```mermaid
 flowchart LR
-  TG[Telegram Bot API<br/>aiogram] --> IN[Inbound adapter]
-  TD[TDLib adapter<br/>опционально] -.-> IN
+  TD[TDLib userbot<br/>@AlysiaNya, Pytdbot] --> IN[Inbound adapter]
+  TG[Bot API<br/>aiogram, резервный] -.-> IN
   IN --> BUS((Event Bus))
   BUS --> Q[Per-chat queue<br/>debounce + batching]
   Q --> SEC[Security gate<br/>isolation, rate limit,<br/>injection marking]
@@ -43,12 +43,12 @@ flowchart LR
 |---|---|---|
 | core | DI-контейнер, Event Bus, lifecycle, конфигурация, ошибки | — |
 | storage | SQLite WAL, миграции, outbox, backup/restore, репозитории со scope | core |
-| telegram | Bot API адаптер, очереди, debounce, typing, burst, RetryAfter; TDLib — отдельный опциональный адаптер | core, storage |
+| telegram | TDLib userbot-адаптер (основной), Bot API адаптер (резервный и для тестов), очереди, debounce, typing, burst, FloodWait | core, storage |
 | security | изоляция, rate limits, circuit breaker, маркировка недоверенного ввода, output sanitizer, privacy-команды | core, storage |
 | memory | working / short-term / long-term, FTS5, эмбеддинги, NumPy cosine, RRF, Forget API | storage, llm (эмбеддинги) |
 | character | личность, VAD-эмоции, decay, emotional diary, отношения, двухэтапная генерация | memory, llm |
 | dream | консолидация, дедупликация, противоречия, confidence/provenance | memory, llm |
-| llm | провайдеры OpenAI / OpenRouter / Anthropic / Gemini / Ollama / vLLM / OpenAI-compatible, capabilities, ретраи, бюджет токенов | core |
+| llm | только облачные API: OpenAI / OpenRouter / Anthropic / Gemini / любой OpenAI-compatible; capabilities, ретраи, бюджет токенов. Локальные модели не разворачиваются (решение пользователя) | core |
 | multimodal | vision, STT, TTS, стикеры/реакции — всё отключаемо | llm |
 | moderation | анализ нарушений в dry_run, audit log, действия только после подтверждения | security, storage |
 | observability | структурные логи без PII, метрики, healthcheck, диагностика | core |
@@ -62,7 +62,7 @@ alya-v3/
 ├── src/alya/
 │   ├── core/          # container, event bus, lifecycle, config, errors
 │   ├── storage/       # db, migrations/, repositories, outbox, backup
-│   ├── telegram/      # bot_api/, tdlib/ (optional), queue, debounce, sender
+│   ├── telegram/      # tdlib/ (основной), bot_api/ (резервный), queue, debounce, sender
 │   ├── security/      # isolation, rate_limit, circuit_breaker, sanitizer, privacy
 │   ├── memory/        # working, short_term, long_term, search (fts, vector, rrf), forget, mirror
 │   ├── character/     # persona, emotion (vad, decay, diary), relationships, planner, responder
@@ -92,7 +92,7 @@ alya-v3/
 1. **Inbound adapter** получает update, нормализует в `InboundMessage` (chat_id, user_id, message_id, текст, медиа-метаданные, reply_to, признак упоминания). Внутренний формат Telegram в модель не попадает.
 2. **Event Bus** публикует `message.received`; сообщение сразу пишется в `messages`.
 3. **Per-chat queue**: строгий порядок внутри чата, параллельность между чатами. Debounce (настраиваемо, порядок 1–3 с) склеивает быстрые сообщения в одну пачку.
-4. **Security gate**: allow-list/lockdown, rate limit на пользователя и чат, в группах — только упоминание или reply боту; маркировка недоверенного содержимого.
+4. **Security gate**: allow-list/lockdown, rate limit на пользователя и чат, в группах — только упоминание или reply Але (userbot видит все сообщения группы, поэтому фильтр обязателен в коде); маркировка недоверенного содержимого.
 5. **Orchestrator**: typing presence → сбор контекста (Allocator) → этап 1 «план» (JSON: intent, tone, memories_used, actions, constraints) → этап 2 «ответ».
 6. **Output sanitizer**: удаление системных маркеров, утечек промпта/секретов, некорректной разметки; валидация под Telegram HTML.
 7. **Burst splitter**: до N частей (по умолчанию 3, ~160 символов, как в alya-v2), задержки ограничены.
@@ -160,4 +160,4 @@ alya-v3/
 
 ## 10. Развёртывание
 
-Docker, non-root пользователь, read-only rootfs где возможно, данные в volume. TDLib в основном образе **не собирается**; если включён, используется prebuilt libtdjson из wheel-пакета (см. DEPENDENCIES.md). Опциональные сервисы (Ollama, whisper, TTS) — отдельные профили compose.
+Docker, non-root пользователь, read-only rootfs где возможно, данные в volume. Целевой хост — Ubuntu + Docker Compose (версия Ubuntu и архитектура CPU уточняются). TDLib в образе **не собирается**: используется prebuilt libtdjson из пакета tdjson. Каталог сессии TDLib — отдельный volume, доступный только пользователю контейнера; первичная авторизация (код, 2FA) — интерактивной командой setup. Локальных моделей нет: LLM, эмбеддинги, vision, STT и TTS — через API.

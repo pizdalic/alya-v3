@@ -9,7 +9,7 @@
 | 1 Foundation | pyproject, src-layout, конфиг (TOML + .env, валидация), DI, Event Bus, логирование без PII, SQLite WAL + миграции, lifecycle, healthcheck, Dockerfile (non-root), CI (lint, types, tests) | Phase 0 | M |
 | 2 Memory Engine | три уровня памяти, scope-репозитории, FTS5, эмбеддинги в BLOB, NumPy cosine, RRF, Markdown-зеркало, Forget API, тесты изоляции | 1 | L |
 | 3 Character Engine | загрузка персонажа, VAD + decay, emotional diary, отношения, двухэтапная генерация, Context Allocator | 2, LLM-слой (минимум один провайдер) | L |
-| 4 Telegram Layer | aiogram, per-chat очередь, debounce, typing, burst, outbox, RetryAfter, группы (mention/reply), privacy-команды; TDLib — только после отдельного решения | 1–3 | L |
+| 4 Telegram Layer | TDLib userbot (Pytdbot + tdjson): авторизация @AlysiaNya, per-chat очередь, debounce, typing, burst, outbox, FloodWait, группы (mention/reply), privacy-команды; Bot API адаптер — резервный транспорт и тестовый стенд | 1–3 | L |
 | 5 Dream Engine | консолидация, дедупликация, противоречия, provenance, атомарность, тесты восстановления после сбоя | 2, 3 | M |
 | 6 Multimodal | vision, STT, TTS, стикеры/реакции, лимиты размеров, fallback | 4 | M |
 | 7 Autonomy | проактивность (quiet hours, cooldown, лимиты), напоминания, плагины с разрешениями, модерация dry_run | 4, 5 | M |
@@ -26,5 +26,5 @@
 
 - **Phase 1:** `alya --check-config` и healthcheck работают; миграции применяются на пустую БД идемпотентно; CI зелёный.
 - **Phase 2:** тест «пользователь A не видит память пользователя B» в личке и группе; Forget удаляет запись из всех хранилищ (проверка по каждому); поиск работает без эмбеддингов; NumPy и sqlite-vec дают совместимые top-k.
-- **Phase 4:** быстрые сообщения склеиваются; RetryAfter соблюдается; в группе без упоминания нет ответа; перезапуск не теряет outbox.
+- **Phase 4:** быстрые сообщения склеиваются; FloodWait соблюдается; в группе без упоминания нет ответа; перезапуск не теряет outbox и не требует повторной авторизации TDLib.
 - **Phase 5:** прерывание консолидации на середине не портит данные.
