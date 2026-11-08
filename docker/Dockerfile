@@ -16,7 +16,7 @@ RUN groupadd --system --gid 10001 alya \
 WORKDIR /app
 COPY --from=build /dist/*.whl /tmp/
 COPY character /app/character
-RUN pip install --no-cache-dir /tmp/*.whl && rm -f /tmp/*.whl \
+RUN pip install --no-cache-dir "$(ls /tmp/*.whl)[tg]" && rm -f /tmp/*.whl \
  && mkdir -p /app/runtime && chown alya:alya /app/runtime
 USER alya
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD ["alya", "healthcheck"]

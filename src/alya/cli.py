@@ -1,4 +1,4 @@
-"""Командная строка: alya check-config | migrate | run | chat | persona | healthcheck | version."""
+"""Командная строка: alya check-config | migrate | run | login | chat | persona | healthcheck | version."""
 
 from __future__ import annotations
 
@@ -89,6 +89,31 @@ def cmd_persona(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_login(args: argparse.Namespace) -> int:
+    """Интерактивный вход в аккаунт Telegram (код и пароль 2FA не сохраняются)."""
+    settings = _load(args)
+    if settings.telegram.mode != "userbot":
+        print("вход нужен только для telegram.mode = userbot", file=sys.stderr)
+        return EXIT_PROBLEMS
+    return asyncio.run(_login(settings))
+
+
+async def _login(settings: Settings) -> int:
+    import getpass
+
+    from alya.telegram.service import interactive_login
+
+    async def prompt(kind: str, hint: str) -> str:
+        reader = getpass.getpass if kind == "password" else input
+        return await asyncio.to_thread(reader, f"{hint}: ")
+
+    me = await interactive_login(settings, prompt)
+    username = (me.get("usernames") or {}).get("active_usernames") or []
+    shown = "@" + username[0] if username else str(me.get("first_name") or "")
+    print(f"вход выполнен: {shown} (id {me.get('id')}); сессия сохранена, можно запускать alya run")
+    return EXIT_OK
+
+
 def cmd_chat(args: argparse.Namespace) -> int:
     """Поговорить с Алей в терминале (как владелец, в личке) — без Telegram."""
     settings = _load(args)
@@ -170,6 +195,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("check-config", help="проверить конфигурацию").set_defaults(fn=cmd_check_config)
     sub.add_parser("migrate", help="применить миграции БД").set_defaults(fn=cmd_migrate)
     sub.add_parser("run", help="запустить").set_defaults(fn=cmd_run)
+    sub.add_parser("login", help="войти в аккаунт Telegram").set_defaults(fn=cmd_login)
     sub.add_parser("chat", help="поговорить с Алей в терминале").set_defaults(fn=cmd_chat)
     sub.add_parser("persona", help="показать загруженный характер").set_defaults(fn=cmd_persona)
     hc = sub.add_parser("healthcheck", help="опросить /health")
