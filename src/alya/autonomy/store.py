@@ -149,6 +149,12 @@ class AutonomyStore:
         return [GroupActivity(int(r[0]), r[1], int(r[2] or 0), int(r[3] or 0), parse_iso(r[4]),
                               parse_iso(r[5]) if r[5] else None) for r in rows]
 
+    async def last_sender(self, chat_id: int) -> int | None:
+        rows = await self._db.fetchall(
+            "SELECT sender_user_id FROM messages WHERE chat_id = ? AND is_outgoing = 0 "
+            "AND sender_user_id IS NOT NULL ORDER BY created_at DESC LIMIT 1", (chat_id,))
+        return int(rows[0][0]) if rows else None
+
     async def recent_texts(self, chat_id: int, since: datetime, limit: int = 30) -> list[str]:
         rows = await self._db.fetchall(
             "SELECT text FROM messages WHERE chat_id = ? AND created_at >= ? AND text IS NOT NULL "
