@@ -6,6 +6,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import Any, cast
 
 from alya.core.config import Settings
 from alya.core.container import Container
@@ -22,6 +23,12 @@ from alya.dream.judge import LLMJudge
 from alya.dream.scheduler import DreamScheduler
 from alya.llm.chat import ChatModel, OpenAICompatibleChat
 from alya.llm.openai_compat import OpenAICompatibleEmbedder
+from alya.media import audio
+from alya.media.clients import (ChatSTT, ImageClient, SpeechTTS, TranscriptionsSTT,
+                                VisionClient, WebSearchClient, http_client)
+from alya.media.limits import KINDS, UsageLimiter
+from alya.media.processor import MediaProcessor, ProcessorLimits
+from alya.media.stickers import StickerStore
 from alya.memory.indexer import Embedder, EmbeddingIndexer
 from alya.memory.mirror import MarkdownMirror
 from alya.memory.repository import LayerPolicy, MemoryRepository
@@ -32,6 +39,7 @@ from alya.observability.health import Check as HealthCheck
 from alya.observability.health import CheckResult, HealthRegistry, HealthServer
 from alya.storage.db import Database
 from alya.storage.migrator import apply_migrations, load_migrations, pending
+from alya.telegram.media_flow import MediaKit
 
 log = logging.getLogger(__name__)
 
@@ -152,6 +160,70 @@ def build_chat_model(settings: Settings, role_name: str) -> ChatModel | None:
                                 timeout_s=settings.llm.timeout_s)
 
 
+def _raw(settings: Settings, role_name: str) -> Any:
+    """Чат-клиент с низкоуровневым raw() для мультимодальных запросов."""
+    return cast(Any, build_chat_model(settings, role_name))
+
+
+def _http(settings: Settings, role_name: str) -> tuple[Any, str] | None:
+    role = settings.llm.roles.get(role_name)
+    if role is None or settings.llm.api_key is None:
+        return None
+    return http_client(role.base_url or settings.llm.base_url,
+                       settings.llm.api_key.get_secret_value(),
+                       timeout_s=settings.llm.timeout_s), role.model
+
+
+def build_limiter(settings: Settings, db: Database) -> UsageLimiter:
+    """Выключенная в [media] функция получает лимит 0 — и не срабатывает никогда."""
+    ms = settings.media
+    flags = {"vision": ms.vision, "stt": ms.stt, "tts": ms.tts, "image": ms.images,
+             "search": ms.web_search, "reaction": ms.reactions, "sticker": ms.stickers}
+    per_hour = {k: (ms.per_hour.get(k, 0) if flags[k] else 0) for k in KINDS}
+    return UsageLimiter(db, per_hour, per_day=dict(ms.per_day))
+
+
+def build_searcher(settings: Settings) -> WebSearchClient | None:
+    if not settings.media.web_search:
+        return None
+    chat = _raw(settings, "utility") or _raw(settings, "chat")
+    return WebSearchClient(chat, max_results=settings.media.web_search_results) if chat else None
+
+
+def build_media(settings: Settings, db: Database, limiter: UsageLimiter,
+                engine: CharacterEngine | None) -> MediaKit:
+    ms = settings.media
+    vision_chat = _raw(settings, "vision") if ms.vision else None
+    stt: Any = None
+    if ms.stt:
+        if ms.stt_api == "chat":
+            chat = _raw(settings, "stt")
+            stt = ChatSTT(chat) if chat else None
+        else:
+            http = _http(settings, "stt")
+            stt = TranscriptionsSTT(*http) if http else None
+    tts = None
+    if ms.tts:
+        http = _http(settings, "tts")
+        if http:
+            tts = SpeechTTS(http[0], http[1], voice=ms.tts_voice,
+                            instructions=ms.tts_instructions)
+    image_chat = _raw(settings, "image") if ms.images else None
+    if (stt or tts) and audio.ffmpeg_path() is None:
+        log.warning("ffmpeg не найден: голосовые не будут распознаваться и озвучиваться")
+    processor = MediaProcessor(
+        limiter, vision=VisionClient(vision_chat) if vision_chat else None, stt=stt,
+        limits=ProcessorLimits(max_image_bytes=ms.max_image_bytes,
+                               max_voice_seconds=ms.max_voice_seconds,
+                               max_voice_bytes=ms.max_voice_bytes))
+    return MediaKit(
+        limiter, processor=processor,
+        stickers=StickerStore(db) if ms.stickers else None, tts=tts,
+        images=ImageClient(image_chat, max_bytes=ms.max_image_bytes) if image_chat else None,
+        selfie_prompt=engine.selfie_prompt if engine is not None else None,
+        media_dir=ms.media_dir, selfie_private_only=ms.selfie_private_only)
+
+
 def build_dream(settings: Settings, db: Database, memory: MemoryService) -> DreamEngine:
     """Движок Dream. Без LLM он только сливает явные дубли и следит за устареванием."""
     ds = settings.dream
@@ -173,7 +245,8 @@ def build_dream(settings: Settings, db: Database, memory: MemoryService) -> Drea
 
 
 def build_character(settings: Settings, db: Database, memory: MemoryService | None,
-                    character: Character | None = None) -> CharacterEngine | None:
+                    character: Character | None = None, *,
+                    limiter: UsageLimiter | None = None) -> CharacterEngine | None:
     """Персонаж грузится и проверяется всегда; движок — только если задана модель chat."""
     cs = settings.character
     character = character or load_character(cs.dir, cs.persona)
@@ -192,6 +265,8 @@ def build_character(settings: Settings, db: Database, memory: MemoryService | No
         recall_k=cs.recall_k,
         temperature=cs.temperature,
         max_reply_tokens=cs.max_reply_tokens,
+        searcher=build_searcher(settings) if limiter is not None else None,
+        limiter=limiter,
     )
 
 
@@ -249,7 +324,8 @@ def build_app(settings: Settings) -> App:
     db = container.resolve(Database)
     memory_service, indexer = build_memory(settings, db)
     character = load_character(settings.character.dir, settings.character.persona)
-    engine = build_character(settings, db, memory_service, character)
+    limiter = build_limiter(settings, db)
+    engine = build_character(settings, db, memory_service, character, limiter=limiter)
     container.register_instance(Character, character)
     if engine is not None:
         container.register_instance(CharacterEngine, engine)
@@ -272,14 +348,15 @@ def build_app(settings: Settings) -> App:
             check_interval_s=ds.check_interval_s,
             new_memories_threshold=ds.new_memories_threshold, min_gap_hours=ds.min_gap_hours))
         registry.add("dream", _dream_check(dream))
-    _add_telegram(lifecycle, settings, db, engine)
+    _add_telegram(lifecycle, settings, db, engine,
+                  build_media(settings, db, limiter, engine))
     if settings.health.enabled:
         lifecycle.add(HealthServer(registry, settings.health.host, settings.health.port))
     return App(settings=settings, container=container, lifecycle=lifecycle)
 
 
 def _add_telegram(lifecycle: Lifecycle, settings: Settings, db: Database,
-                  engine: CharacterEngine | None) -> None:
+                  engine: CharacterEngine | None, media: MediaKit | None = None) -> None:
     tg = settings.telegram
     if tg.mode == "none":
         return
@@ -292,7 +369,8 @@ def _add_telegram(lifecycle: Lifecycle, settings: Settings, db: Database,
     from alya.telegram.service import TelegramService
 
     classifier = build_chat_model(settings, "utility") or build_chat_model(settings, "chat")
-    lifecycle.add(TelegramService(settings, db, engine, classifier_chat=classifier))
+    lifecycle.add(TelegramService(settings, db, engine, classifier_chat=classifier,
+                                  media=media))
 
 
 def _database_check(db: Database) -> HealthCheck:
