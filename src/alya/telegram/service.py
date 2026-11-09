@@ -16,6 +16,7 @@ from alya.telegram.addressee import AddresseeDetector, LLMAddresseeClassifier
 from alya.telegram.commands import OwnerCommands
 from alya.telegram.media_flow import MediaKit
 from alya.telegram.outbox import OutboxStore
+from alya.telegram.privacy import PrivacyCommands
 from alya.telegram.pipeline import Pipeline, PipelineConfig, Responder
 from alya.telegram.sender import Sender
 from alya.telegram.tdlib.adapter import TdlibAdapter
@@ -70,8 +71,13 @@ class TelegramService:
                 media_dir=self._media.media_dir,
                 max_image_bytes=self._settings.media.max_image_bytes,
                 autonomy=autonomy, timezone=self._settings.app.timezone)
+        privacy = (PrivacyCommands(self._db, self._memory,
+                                   owner_id=self._settings.app.owner_user_id,
+                                   timezone=self._settings.app.timezone)
+                   if self._memory is not None else None)
         pipeline = Pipeline(self._db, self._engine, detector, outbox, transport=adapter,
-                            media=self._media, autonomy=autonomy, config=PipelineConfig(
+                            media=self._media, autonomy=autonomy, privacy=privacy,
+                            config=PipelineConfig(
                                 me_id=me_id, owner_id=self._settings.app.owner_user_id,
                                 strangers=tg.strangers,
                                 group_context_hours=tg.group_context_hours,

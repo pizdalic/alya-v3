@@ -23,6 +23,7 @@ from alya.telegram.debounce import Debouncer
 from alya.telegram.media_flow import MediaKit, outgoing, sent_text
 from alya.telegram.models import IncomingMessage, MessageEdited, MessagesDeleted
 from alya.telegram.outbox import OutboxItem, OutboxStore
+from alya.telegram.privacy import PrivacyCommands
 from alya.telegram.sanitize import clean_outgoing
 from alya.telegram.transport import Transport
 
@@ -57,7 +58,9 @@ class Pipeline:
                  outbox: OutboxStore, *, config: PipelineConfig,
                  transport: Transport | None = None, wake: Callable[[], None] | None = None,
                  clock: Clock = utcnow, media: MediaKit | None = None,
-                 autonomy: AutonomyStore | None = None) -> None:
+                 autonomy: AutonomyStore | None = None,
+                 privacy: PrivacyCommands | None = None) -> None:
+        self._privacy = privacy
         self._db = db
         self._engine = engine
         self._detector = detector
@@ -147,6 +150,10 @@ class Pipeline:
             return
         if msg.sender_id is None or msg.sender_id == self._cfg.me_id:
             return
+        if self._privacy is not None and self._privacy.accepts(msg):
+            # до записи и до политики незнакомцев: право забыть себя есть у всех
+            await self._privacy_reply(msg)
+            return
         if await self._command(msg):
             return
         if not await self._allowed(msg):
@@ -175,6 +182,16 @@ class Pipeline:
         if self._wake is not None:
             self._wake()
         return True
+
+    async def _privacy_reply(self, msg: IncomingMessage) -> None:
+        assert self._privacy is not None
+        answers = await self._privacy.handle(msg)
+        for i, text in enumerate(answers):
+            await self._outbox.enqueue(msg.chat_id, f"{msg.chat_id}:{msg.message_id}:priv:{i}", {
+                "text": text, "reply_to": None, "typing_s": 0, "addressees": [],
+                "system": True})
+        if answers and self._wake is not None:
+            self._wake()
 
     async def _command(self, msg: IncomingMessage) -> bool:
         commands = self._media.commands if self._media is not None else None

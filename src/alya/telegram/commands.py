@@ -35,7 +35,8 @@ HELP = ("команды:\n"
         "/media — что включено и сколько потрачено за сутки\n"
         "/channels — каналы, которые я читаю · /channels off|on <id>\n"
         "/reminders — мои напоминания тебе · /reminders cancel <id>\n"
-        "/pause · /resume — не писать тебе первой / снова можно")
+        "/pause · /resume — не писать тебе первой / снова можно\n"
+        "/privacy — команды приватности (/mydata, /export, /forget, /forget_user, /forget_chat)")
 
 
 class AccountTransport(Protocol):
