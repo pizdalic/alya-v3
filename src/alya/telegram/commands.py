@@ -36,6 +36,7 @@ HELP = ("команды:\n"
         "/channels — каналы, которые я читаю · /channels off|on <id>\n"
         "/reminders — мои напоминания тебе · /reminders cancel <id>\n"
         "/pause · /resume — не писать тебе первой / снова можно\n"
+        "/tdprobe — проверка отправки файлов через TDLib\n"
         "/privacy — команды приватности (/mydata, /export, /forget, /forget_user, /forget_chat)")
 
 
@@ -52,7 +53,7 @@ class AccountTransport(Protocol):
 
 
 COMMAND_NAMES = frozenset({"/join", "/bio", "/avatar", "/stickers", "/media", "/channels",
-                           "/reminders", "/help", "/pause", "/resume", "/start"})
+                           "/reminders", "/help", "/tdprobe", "/pause", "/resume", "/start"})
 
 
 class OwnerCommands:
@@ -88,7 +89,7 @@ class OwnerCommands:
         handler = {"/join": self._join, "/bio": self._bio, "/avatar": self._avatar,
                    "/stickers": self._sticker_cmd, "/media": self._media,
                    "/channels": self._channels, "/reminders": self._reminders,
-                   "/help": self._help}.get(name)
+                   "/help": self._help, "/tdprobe": self._tdprobe}.get(name)
         if handler is None:
             return None  # неизвестная команда — пусть Аля просто ответит
         try:
@@ -137,6 +138,12 @@ class OwnerCommands:
             return "напоминаний нет"
         return "\n".join(f"{r.id} — {r.due_at.astimezone(self._tz):%d.%m %H:%M} — {r.text}"
                          for r in rows)
+
+    async def _tdprobe(self, msg: IncomingMessage, arg: str) -> str:
+        probe = getattr(self._t, "probe_files", None)
+        if probe is None:
+            return "проверка доступна только в режиме userbot"
+        return "\n".join(await probe(msg.chat_id))
 
     async def _help(self, msg: IncomingMessage, arg: str) -> str:
         return HELP
