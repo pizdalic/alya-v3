@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from alya.character.persona import EmotionProfile
 from alya.core.timeutil import Clock, iso, parse_iso, utcnow
@@ -45,6 +45,9 @@ def decay(state: VAD, baseline: VAD, elapsed_s: float, half_life_hours: float) -
     keep = 0.5 ** (elapsed_s / (half_life_hours * 3600.0))
     return VAD(*(b + (s - b) * keep for s, b in zip(state.as_tuple(), baseline.as_tuple(),
                                                      strict=True))).clamped()
+
+
+DIARY_MIN = 0.05  # мелкие сдвиги не пишем в дневник
 
 
 def apply_delta(state: VAD, delta: VAD, profile: EmotionProfile) -> tuple[VAD, VAD]:
@@ -124,7 +127,7 @@ class EmotionStore:
             state = self._load(conn, now)
             new, real = apply_delta(state, delta, self._profile)
             self._save(conn, new, now)
-            if max(abs(x) for x in real.as_tuple()) >= 0.01:
+            if max(abs(x) for x in real.as_tuple()) >= DIARY_MIN:
                 conn.execute(
                     "INSERT INTO emotion_diary (chat_id, user_id, reason, d_valence, d_arousal, "
                     "d_dominance, valence, arousal, dominance, created_at) "
@@ -133,6 +136,15 @@ class EmotionStore:
             return new
 
         return await self._db.transaction(op)
+
+    async def reasons(self, chat_id: int, *, hours: float = 6.0,
+                      limit: int = 3) -> list[str]:
+        """Недавние причины настроения только из этого чата (чужие чаты не протекают)."""
+        since = iso(self._clock() - timedelta(hours=hours))
+        rows = await self._db.fetchall(
+            "SELECT reason FROM emotion_diary WHERE chat_id = ? AND created_at >= ? "
+            "ORDER BY id DESC LIMIT ?", (chat_id, since, limit))
+        return [str(r["reason"]) for r in reversed(rows)]
 
     async def diary(self, limit: int = 20) -> list[sqlite3.Row]:
         return await self._db.fetchall(
