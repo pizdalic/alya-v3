@@ -250,7 +250,8 @@ class AutonomyScheduler:
         now = self._clock()
         if self.quiet() or not self._stems:
             return 0
-        if await self._store.initiatives_since("group", now - timedelta(days=1)) >= c.group_max_per_day:
+        recent_group = await self._store.initiatives_since("group", now - timedelta(days=1))
+        if recent_group >= c.group_max_per_day:
             return 0
         window = now - timedelta(minutes=c.group_window_minutes)
         for act in await self._store.group_activity(window, me_id=self._me):

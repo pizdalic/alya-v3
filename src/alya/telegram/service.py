@@ -8,21 +8,19 @@ from typing import Any
 
 from alya.autonomy.scheduler import AutonomyConfig, AutonomyScheduler
 from alya.autonomy.store import AutonomyStore
-
 from alya.core.config import Settings
 from alya.llm.chat import ChatModel
-from alya.storage.db import Database
-from alya.telegram.botapi import BotApi, BotApiAdapter
-from alya.telegram.addressee import AddresseeDetector, LLMAddresseeClassifier
-from alya.telegram.commands import OwnerCommands
-from alya.telegram.media_flow import MediaKit
-from alya.telegram.outbox import OutboxStore
 from alya.plugins.registry import PluginHost, load_plugins
-from alya.telegram.commands import COMMAND_NAMES
+from alya.storage.db import Database
+from alya.telegram.addressee import AddresseeDetector, LLMAddresseeClassifier
+from alya.telegram.botapi import BotApi, BotApiAdapter
+from alya.telegram.commands import COMMAND_NAMES, OwnerCommands
+from alya.telegram.media_flow import MediaKit
 from alya.telegram.moderation import ModerationRules, Moderator
+from alya.telegram.outbox import OutboxStore
+from alya.telegram.pipeline import Pipeline, PipelineConfig, Responder
 from alya.telegram.privacy import NAMES as PRIVACY_NAMES
 from alya.telegram.privacy import PrivacyCommands
-from alya.telegram.pipeline import Pipeline, PipelineConfig, Responder
 from alya.telegram.sender import Sender
 from alya.telegram.tdlib.adapter import TdlibAdapter
 from alya.telegram.tdlib.auth import authorize, interactive_login, username_of

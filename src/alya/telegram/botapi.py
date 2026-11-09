@@ -67,7 +67,8 @@ class BotApi:
         try:
             raw = await asyncio.to_thread(self._open, req, timeout or self._timeout)
         except (OSError, TimeoutError) as exc:
-            raise TransportError(self._clean(f"{method}: сеть: {type(exc).__name__}: {exc}")) from None
+            msg = f"{method}: сеть: {type(exc).__name__}: {exc}"
+            raise TransportError(self._clean(msg)) from None
         try:
             body = json.loads(raw)
         except ValueError:

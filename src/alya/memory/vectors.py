@@ -1,4 +1,5 @@
-"""Векторы: float32 в BLOB, косинус на NumPy (обязательный путь), sqlite-vec — опциональный ускоритель."""
+"""Векторы: float32 в BLOB, косинус на NumPy (обязательный путь),
+sqlite-vec — опциональный ускоритель."""
 
 from __future__ import annotations
 

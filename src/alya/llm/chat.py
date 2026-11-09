@@ -18,8 +18,8 @@ from alya.llm.openai_compat import (
     RETRY_STATUSES,
     LLMHTTPError,
     _error_message,
-    _Retryable,
     _retry_after,
+    _Retryable,
 )
 
 # content — строка или список частей (text / image_url / input_audio) для мультимодальных ролей
@@ -118,7 +118,9 @@ class OpenAICompatibleChat:
             detail = _error_message(exc.read())
             msg = f"HTTP {exc.code} от провайдера чата" + (f": {detail}" if detail else "")
             if exc.code in RETRY_STATUSES:
-                raise _Retryable(msg, exc.code, _retry_after(exc.headers.get("Retry-After")))
+                raise _Retryable(
+                    msg, exc.code, _retry_after(exc.headers.get("Retry-After"))
+                ) from None
             raise LLMHTTPError(msg, exc.code) from None
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             raise _Retryable(f"сетевая ошибка: {type(exc).__name__}", None, None) from None

@@ -56,7 +56,8 @@ class DetectorTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((await self.det.decide(self.m(B, "алё, аля!"))).addressed)
         d = await self.det.decide(self.m(B, "согласен", reply_to_user_id=C))
         self.assertEqual((d.addressed, d.reason), (False, "reply_other"))
-        d = await self.det.decide(self.m(B, "@vasya глянь", mentioned_usernames=frozenset({"vasya"})))
+        d = await self.det.decide(
+            self.m(B, "@vasya глянь", mentioned_usernames=frozenset({"vasya"})))
         self.assertEqual((d.addressed, d.reason), (False, "mention_other"))
 
     async def test_name_inside_word_is_not_a_name(self) -> None:

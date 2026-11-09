@@ -14,7 +14,7 @@ from alya.dream.similarity import looks_like_instruction
 from alya.memory.forget import delete_memory_sync
 from alya.memory.indexer import EmbeddingIndexer
 from alya.memory.models import MemoryContext, ScopeKey
-from tests.memory_helpers import A, B, GROUP, MemoryTestCase
+from tests.memory_helpers import GROUP, A, B, MemoryTestCase
 
 CTX_A = MemoryContext.private(A)
 CTX_B = MemoryContext.private(B)

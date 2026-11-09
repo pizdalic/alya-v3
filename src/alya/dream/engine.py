@@ -222,7 +222,8 @@ class DreamEngine:
                     continue
                 if tuple(sorted(ids)) in checked:
                     continue
-                if looks_like_instruction(a.memory.content) or looks_like_instruction(b.memory.content):
+                if (looks_like_instruction(a.memory.content)
+                        or looks_like_instruction(b.memory.content)):
                     continue
                 pairs_left -= 1
                 gone |= await self._check_pair(report, key, a.memory, b.memory)
@@ -288,7 +289,9 @@ class DreamEngine:
                     return False
         return True
 
-    async def _consolidate(self, report: DreamReport, key: ScopeKey, group: Sequence[Item]) -> set[str]:
+    async def _consolidate(
+        self, report: DreamReport, key: ScopeKey, group: Sequence[Item]
+    ) -> set[str]:
         clean = [it for it in group if not looks_like_instruction(it.memory.content)]
         report.skipped += len(group) - len(clean)
         if len(clean) < 2:
@@ -414,7 +417,9 @@ class DreamEngine:
         conn.execute("INSERT OR REPLACE INTO dream_checked_pairs (a_id, b_id, verdict, checked_at) "
                      "VALUES (?, ?, ?, ?)", (lo, hi, verdict, now_s))
 
-    async def _check_pair(self, report: DreamReport, key: ScopeKey, a: Memory, b: Memory) -> set[str]:
+    async def _check_pair(
+        self, report: DreamReport, key: ScopeKey, a: Memory, b: Memory
+    ) -> set[str]:
         assert self._judge is not None
         try:
             verdict = await self._judge.relation(a.content, b.content)

@@ -52,7 +52,8 @@ class GateTests(MemoryTestCase):
             sticker_pick=pick)
 
     async def ask(self, engine: CharacterEngine, chat: FakeChat):  # type: ignore[no-untyped-def]
-        reply = await engine.respond(Turn(MemoryContext.private(A), "кинь фото и стикер", "Миша", []))
+        turn = Turn(MemoryContext.private(A), "кинь фото и стикер", "Миша", [])
+        reply = await engine.respond(turn)
         return reply, chat.calls[-1][0][0]["content"]
 
     async def test_blocked_media_dropped_and_told(self) -> None:

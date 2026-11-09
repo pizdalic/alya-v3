@@ -7,8 +7,14 @@ from alya.memory.fts import build_match
 from alya.memory.indexer import EmbeddingIndexer
 from alya.memory.models import MemoryContext
 from alya.memory.search import rrf
-from alya.memory.vectors import NumpyBackend, SqliteVecBackend, cosine_top_k, decode, encode, \
-    load_sqlite_vec
+from alya.memory.vectors import (
+    NumpyBackend,
+    SqliteVecBackend,
+    cosine_top_k,
+    decode,
+    encode,
+    load_sqlite_vec,
+)
 from tests.memory_helpers import GROUP, A, MemoryTestCase
 
 A_DM = MemoryContext.private(A)

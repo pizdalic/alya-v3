@@ -4,9 +4,16 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from alya.memory.models import MemoryContext
-from alya.storage.backup import (BackupError, BackupScheduler, create_backup, export_user,
-                                 list_backups, restore_backup, rotate)
-from alya.storage.backup import SAFETY
+from alya.storage.backup import (
+    SAFETY,
+    BackupError,
+    BackupScheduler,
+    create_backup,
+    export_user,
+    list_backups,
+    restore_backup,
+    rotate,
+)
 from tests.memory_helpers import A, B, MemoryTestCase
 
 NOW = datetime(2026, 11, 9, 12, 0, tzinfo=UTC)
@@ -44,7 +51,8 @@ class BackupTests(MemoryTestCase):
         self.assertGreaterEqual(rep.removed, 1)
         assert rep.safety_copy is not None
         self.assertTrue(rep.safety_copy.exists())
-        self.assertEqual(count(self.db_path, "SELECT COUNT(*) FROM users WHERE user_id = ?", (A,)), 0)
+        self.assertEqual(
+            count(self.db_path, "SELECT COUNT(*) FROM users WHERE user_id = ?", (A,)), 0)
         self.assertGreaterEqual(count(self.db_path, "SELECT COUNT(*) FROM deletion_journal"), 1)
 
     def test_rotation_keeps_newest_by_age_and_count(self) -> None:
@@ -55,8 +63,9 @@ class BackupTests(MemoryTestCase):
         removed = rotate(self.dest, keep=3, retain_days=7, now=NOW)
         self.assertEqual(len(removed), 2)
         left = list_backups(self.dest)
-        self.assertEqual([p.name for p in left],
-                         [f"alya-{(NOW - timedelta(days=d)):%Y%m%d-%H%M%S}.sqlite3" for d in (2, 1, 0)])
+        self.assertEqual(
+            [p.name for p in left],
+            [f"alya-{(NOW - timedelta(days=d)):%Y%m%d-%H%M%S}.sqlite3" for d in (2, 1, 0)])
         rotate(self.dest, keep=1, retain_days=1, now=NOW + timedelta(days=30))
         self.assertEqual(len(list_backups(self.dest)), 1, "самый свежий не удаляется")
         self.assertFalse(list(self.dest.glob("*.part")))

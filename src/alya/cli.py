@@ -1,4 +1,5 @@
-"""Командная строка: alya check-config | migrate | run | login | backup | backups | restore | export-user | chat | persona | dream | healthcheck | version."""
+"""Командная строка: alya check-config | migrate | run | login | backup | backups | restore |
+export-user | chat | persona | dream | healthcheck | version."""
 
 from __future__ import annotations
 

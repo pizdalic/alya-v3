@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from alya.llm.openai_compat import LLMHTTPError
 from alya.media.clients import ImageClient, VisionClient, WebSearchClient
 from alya.media.limits import UsageLimiter
 from alya.media.models import MediaRef, ReplyActions
@@ -129,7 +130,7 @@ class ClientTests(DbTestCase):
                          "девочка с котом")
         parts = chat.calls[0][0][0]["content"]
         self.assertTrue(parts[1]["image_url"]["url"].startswith("data:image/png;base64,"))
-        with self.assertRaises(Exception):
+        with self.assertRaises(LLMHTTPError):
             await VisionClient(chat).describe(b"not an image")
 
     async def test_image_client_decodes(self) -> None:
@@ -137,7 +138,7 @@ class ClientTests(DbTestCase):
         chat = FakeRaw({"content": "", "images": [{"image_url": {"url": url}}]})
         self.assertEqual(await ImageClient(chat).generate("селфи"), PNG)
         self.assertEqual(chat.calls[0][1]["extra"], {"modalities": ["image", "text"]})
-        with self.assertRaises(Exception):
+        with self.assertRaises(LLMHTTPError):
             await ImageClient(FakeRaw({"content": "нет"})).generate("x")
 
     async def test_search_sources(self) -> None:

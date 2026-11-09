@@ -99,7 +99,8 @@ _KEY_PROBE = "inputFileAlyaKey_"
 _KEY_FOUND = re.compile(r'Unknown class "inputFileAlyaKey_(\w+)"')
 _NO_FILE = "InputFile is not specified"
 # В новой схеме TDLib файл лежит внутри объекта-обёртки:
-# inputMessagePhoto.photo -> inputPhoto.photo -> InputFile (и так же для стикера, документа, голосового).
+# inputMessagePhoto.photo -> inputPhoto.photo -> InputFile
+# (и так же для стикера, документа, голосового).
 # В старой — InputFile прямо в поле. Пробуем новую, при ошибке формата — старую, и запоминаем.
 _WRAPPERS = {"inputMessagePhoto": "inputPhoto", "inputMessageSticker": "inputSticker",
              "inputMessageVoiceNote": "inputVoiceNote", "inputMessageDocument": "inputDocument"}
@@ -285,7 +286,8 @@ class TdlibAdapter:
         chat = self._chats.get(chat_id) or {}
         content = m.get("content") or {}
         ref = media_ref(content) if media else None
-        caption = clean_incoming(((content.get("caption") or {}).get("text") or "")) if media else ""
+        caption = (clean_incoming(((content.get("caption") or {}).get("text") or ""))
+                   if media else "")
         return IncomingMessage(
             chat_id=chat_id, message_id=int(m["id"]), sender_id=sender_id, chat_kind=kind,
             text=clean_incoming(raw), date=datetime.fromtimestamp(int(m.get("date") or 0), UTC),
@@ -351,7 +353,8 @@ class TdlibAdapter:
             log.warning("стикер %s: getRemoteFile вернул %s без id файла, шлю по remote_id",
                         short, file.get("@type"))
             return await self._send_sticker_step(
-                chat_id, {"@type": "inputFileRemote", "id": remote_id}, reply_to, short, "inputFileRemote")
+                chat_id, {"@type": "inputFileRemote", "id": remote_id}, reply_to, short,
+                "inputFileRemote")
         log.info("стикер %s: getRemoteFile ok, file_id=%s", short, file_id)
 
         # шаг 2: sendMessage с inputFileId
@@ -364,13 +367,15 @@ class TdlibAdapter:
 
         # шаг 3: скачать файл и отправить как inputFileLocal
         path = await self._download_sticker(file_id, short)
-        return await self._send_sticker_step(chat_id, _local(path), reply_to, short, "inputFileLocal")
+        return await self._send_sticker_step(
+            chat_id, _local(path), reply_to, short, "inputFileLocal")
 
     async def _send_sticker_step(self, chat_id: int, sticker: TdObject, reply_to: int | None,
                                  short: str, how: str) -> int:
         try:
             msg_id = await self._send_media(chat_id, "inputMessageSticker", "sticker", sticker,
-                                            {"emoji": ""}, reply_to, inner={"width": 0, "height": 0})
+                                            {"emoji": ""}, reply_to,
+                                            inner={"width": 0, "height": 0})
         except TransportError as exc:
             log.warning("стикер %s: sendMessage (%s) отклонён: %s", short, how, exc)
             raise
@@ -479,13 +484,16 @@ class TdlibAdapter:
             ("B фото в inputPhoto, неизвестный класс файла",
              wrap("inputMessagePhoto", {"@type": "inputFileAlyaProbe"})),
             ("C неизвестный класс сообщения", {"@type": "inputMessageAlyaProbe"}),
-            ("D документ в inputDocument, несуществующий путь", wrap("inputMessageDocument", missing)),
+            ("D документ в inputDocument, несуществующий путь",
+             wrap("inputMessageDocument", missing)),
             ("E стикер в inputSticker, несуществующий путь", wrap("inputMessageSticker", missing)),
             ("F голосовое в inputVoiceNote, несуществующий путь",
              wrap("inputMessageVoiceNote", missing)),
-            ("G фото без обёртки (старый формат)", {"@type": "inputMessagePhoto", "photo": missing}),
+            ("G фото без обёртки (старый формат)",
+             {"@type": "inputMessagePhoto", "photo": missing}),
         ]
-        out = [f"TDLib {await self.td_version()}, привязка {type(getattr(self._client, '_td', None)).__name__}"]
+        binding = type(getattr(self._client, '_td', None)).__name__
+        out = [f"TDLib {await self.td_version()}, привязка {binding}"]
         for label, content in probes:
             try:
                 msg_id = await self._send(chat_id, content, None)
@@ -543,8 +551,9 @@ class TdlibAdapter:
             if _NO_FILE not in str(exc) or "inputChatPhotoStatic" in self._file_keys:
                 raise
             real = await self._discover_file_key(
-                "inputChatPhotoStatic", lambda probe: {"@type": "setProfilePhoto", "is_public": False,
-                                                       "photo": {"@type": "inputChatPhotoStatic", **probe}})
+                "inputChatPhotoStatic",
+                lambda probe: {"@type": "setProfilePhoto", "is_public": False,
+                               "photo": {"@type": "inputChatPhotoStatic", **probe}})
             if real is None or real == key:
                 raise
         await self._client.request(req(real, _local(path)))

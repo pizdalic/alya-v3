@@ -1,4 +1,5 @@
-"""Отправка стикера через TDLib: getRemoteFile -> inputFileId -> (downloadFile -> inputFileLocal)."""
+"""Отправка стикера через TDLib:
+getRemoteFile -> inputFileId -> (downloadFile -> inputFileLocal)."""
 
 from __future__ import annotations
 
@@ -24,7 +25,9 @@ class StickerRequester(FakeRequester):
             "@type": "file", "id": 77,
             "local": {"path": "/tmp/td/stickers/s.webp", "is_downloading_completed": True}}
 
-    async def request(self, query: dict[str, Any], *, timeout: float | None = None) -> dict[str, Any]:
+    async def request(
+        self, query: dict[str, Any], *, timeout: float | None = None
+    ) -> dict[str, Any]:
         kind = query["@type"]
         if kind in ("getRemoteFile", "downloadFile"):
             self.requests.append(query)
@@ -161,7 +164,8 @@ class StickerShapeTests(unittest.IsolatedAsyncioTestCase):
         req.adapter = ad
         with self.assertLogs(LOG, "WARNING") as logs, self.assertRaises(TransportError):
             await ad.send_sticker(5, RID)
-        self.assertIn('input_message_content={"@type": "inputMessageSticker"', "\n".join(logs.output))
+        self.assertIn('input_message_content={"@type": "inputMessageSticker"',
+                      "\n".join(logs.output))
 
     async def test_td_version(self) -> None:
         class V(StickerRequester):

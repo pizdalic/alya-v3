@@ -12,7 +12,9 @@ from tests.test_tdlib import ME, FakeRequester
 
 
 class RejectAll(FakeRequester):
-    async def request(self, query: dict[str, Any], *, timeout: float | None = None) -> dict[str, Any]:
+    async def request(
+        self, query: dict[str, Any], *, timeout: float | None = None
+    ) -> dict[str, Any]:
         if query["@type"] == "sendMessage":
             self.requests.append(query)
             raise TdError(400, "InputFile is not specified")
@@ -29,7 +31,7 @@ class ProbeTests(unittest.IsolatedAsyncioTestCase):
         out = await ad.probe_files(5)
         self.assertEqual(len(out), 12)  # версия + 7 проб + 4 обёртки
         self.assertIn("TDLib 1.8.70", out[0])
-        for line, letter in zip(out[1:8], "ABCDEFG"):
+        for line, letter in zip(out[1:8], "ABCDEFG", strict=True):
             self.assertTrue(line.startswith(letter))
             self.assertIn("InputFile is not specified", line)
         self.assertTrue(all("не найдено" in line for line in out[8:]))

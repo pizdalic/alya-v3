@@ -15,7 +15,6 @@ from typing import Protocol
 from zoneinfo import ZoneInfo
 
 from alya.autonomy.store import AutonomyStore
-
 from alya.media.limits import KINDS, UsageLimiter
 from alya.media.stickers import StickerStore
 from alya.telegram.models import IncomingMessage

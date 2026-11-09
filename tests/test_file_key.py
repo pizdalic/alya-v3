@@ -42,7 +42,9 @@ class SchemaTd(FakeRequester):
         self.reject_all = reject_all
         self.sent: list[dict[str, Any]] = []
 
-    async def request(self, query: dict[str, Any], *, timeout: float | None = None) -> dict[str, Any]:
+    async def request(
+        self, query: dict[str, Any], *, timeout: float | None = None
+    ) -> dict[str, Any]:
         if query["@type"] == "sendMessage" and query["input_message_content"]["@type"] in FIELDS:
             content = query["input_message_content"]
             try:
@@ -77,7 +79,8 @@ class MediaFormatTests(unittest.IsolatedAsyncioTestCase):
     async def test_new_schema_sticker_matches_doc(self) -> None:
         req = SchemaTd(wrapped=True)
         ad = self.adapter(req)
-        await ad._send_sticker_step(5, {"@type": "inputFileId", "id": 1240}, None, "x", "inputFileId")
+        await ad._send_sticker_step(
+            5, {"@type": "inputFileId", "id": 1240}, None, "x", "inputFileId")
         self.assertEqual(req.sent[-1], {
             "@type": "inputMessageSticker",
             "sticker": {"@type": "inputSticker", "sticker": {"@type": "inputFileId", "id": 1240},

@@ -57,7 +57,8 @@ class MarkdownMirror:
 
     def path_for(self, key: ScopeKey) -> Path:
         if key.scope == "private":
-            return self._root / "private" / f"u{int(key.owner_user_id or 0)}_c{int(key.chat_id or 0)}.md"
+            name = f"u{int(key.owner_user_id or 0)}_c{int(key.chat_id or 0)}.md"
+            return self._root / "private" / name
         if key.scope == "chat":
             return self._root / "chats" / f"c{int(key.chat_id or 0)}.md"
         return self._root / "character.md"
