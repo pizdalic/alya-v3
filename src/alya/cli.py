@@ -1,4 +1,4 @@
-"""Командная строка: alya check-config | migrate | run | login | backup | restore | export-user | chat | persona | dream | healthcheck | version."""
+"""Командная строка: alya check-config | migrate | run | login | backup | backups | restore | export-user | chat | persona | dream | healthcheck | version."""
 
 from __future__ import annotations
 
@@ -220,6 +220,17 @@ def cmd_backup(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_backups(args: argparse.Namespace) -> int:
+    from alya.storage.backup import list_backups
+    settings = _load(args)
+    found = list_backups(settings.backup.dir)
+    if not found:
+        print("бэкапов нет")
+    for p in found:
+        print(f"{p}  {p.stat().st_size // 1024} КБ")
+    return EXIT_OK
+
+
 def cmd_restore(args: argparse.Namespace) -> int:
     from alya.storage.backup import list_backups, restore_backup
     settings = _load(args)
@@ -274,6 +285,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("persona", help="показать загруженный характер").set_defaults(fn=cmd_persona)
     sub.add_parser("dream", help="один прогон консолидации памяти").set_defaults(fn=cmd_dream)
     sub.add_parser("backup", help="создать резервную копию БД").set_defaults(fn=cmd_backup)
+    sub.add_parser("backups", help="список бэкапов").set_defaults(fn=cmd_backups)
     rs = sub.add_parser("restore", help="восстановить БД из бэкапа (Аля остановлена)")
     rs.add_argument("file", nargs="?", help="файл бэкапа; по умолчанию — самый свежий")
     rs.add_argument("--list", action="store_true", help="показать бэкапы")

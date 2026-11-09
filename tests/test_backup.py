@@ -104,3 +104,11 @@ class BackupTests(MemoryTestCase):
         create_backup(self.db_path, self.dest, retain_days=7, now=NOW)
         self.assertFalse(old.exists())
         self.assertTrue(fresh.exists())
+
+    def test_cli_parser_has_backup_commands(self) -> None:
+        from alya.cli import build_parser
+        p = build_parser()
+        for argv in (["backup"], ["backups"], ["restore", "x.sqlite3", "--yes"],
+                     ["export-user", "1", "--out", "o.json"]):
+            with self.subTest(argv=argv):
+                self.assertTrue(callable(p.parse_args(argv).fn))
