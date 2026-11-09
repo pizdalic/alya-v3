@@ -179,7 +179,7 @@ def export_user(conn: sqlite3.Connection, user_id: int) -> dict[str, Any]:
             "SELECT * FROM memories WHERE owner_user_id = ? OR subject_user_id = ? OR "
             "(scope = 'private' AND chat_id = ?) ORDER BY created_at", (uid, uid, uid))),
         "messages": _dicts(q("SELECT * FROM messages WHERE sender_user_id = ? OR chat_id = ? "
-                             "ORDER BY chat_id, message_id", (uid, uid))),
+                             "ORDER BY chat_id, tg_message_id", (uid, uid))),
         "relationships": _dicts(q("SELECT * FROM relationships WHERE user_id = ?", (uid,))),
     }
 
