@@ -98,6 +98,18 @@ _FILE_KEY_CANDIDATES = (
 _KEY_PROBE = "inputFileAlyaKey_"
 _KEY_FOUND = re.compile(r'Unknown class "inputFileAlyaKey_(\w+)"')
 _NO_FILE = "InputFile is not specified"
+# В новой схеме TDLib файл лежит внутри объекта-обёртки:
+# inputMessagePhoto.photo -> inputPhoto.photo -> InputFile (и так же для стикера, документа, голосового).
+# В старой — InputFile прямо в поле. Пробуем новую, при ошибке формата — старую, и запоминаем.
+_WRAPPERS = {"inputMessagePhoto": "inputPhoto", "inputMessageSticker": "inputSticker",
+             "inputMessageVoiceNote": "inputVoiceNote", "inputMessageDocument": "inputDocument"}
+_MEDIA_FIELD = {"inputMessagePhoto": "photo", "inputMessageSticker": "sticker",
+                "inputMessageVoiceNote": "voice_note", "inputMessageDocument": "document"}
+
+
+def _format_error(exc: Exception) -> bool:
+    text = str(exc)
+    return _NO_FILE in text or 'Unknown class "input' in text
 
 
 def _local(path: str) -> TdObject:
@@ -143,6 +155,7 @@ class TdlibAdapter:
         self._me = me_id
         self._send_timeout = send_timeout_s
         self._file_keys: dict[str, str | None] = {}
+        self._media_mode: dict[str, str] = {}
         self._users: dict[int, TdObject] = {}
         self._chats: dict[int, TdObject] = {}
         self._reply_senders: OrderedDict[tuple[int, int], int | None] = OrderedDict()
@@ -307,15 +320,16 @@ class TdlibAdapter:
     async def send_voice(self, chat_id: int, path: str, duration_s: int, *,
                          reply_to: int | None = None) -> int:
         return await self._send_media(chat_id, "inputMessageVoiceNote", "voice_note", _local(path),
-                                      {"duration": int(duration_s), "waveform": ""}, reply_to)
+                                      {}, reply_to,
+                                      inner={"duration": int(duration_s), "waveform": ""})
 
     async def send_photo(self, chat_id: int, path: str, *, caption: str = "",
                          reply_to: int | None = None) -> int:
-        extra: TdObject = {"width": 0, "height": 0}
+        extra: TdObject = {}
         if caption:
             extra["caption"] = {"@type": "formattedText", "text": caption, "entities": []}
         return await self._send_media(chat_id, "inputMessagePhoto", "photo", _local(path),
-                                      extra, reply_to)
+                                      extra, reply_to, inner={"width": 0, "height": 0})
 
     async def send_sticker(self, chat_id: int, remote_id: str, *,
                            reply_to: int | None = None) -> int:
@@ -354,15 +368,11 @@ class TdlibAdapter:
 
     async def _send_sticker_step(self, chat_id: int, sticker: TdObject, reply_to: int | None,
                                  short: str, how: str) -> int:
-        # только обязательное поле: width/height/emoji у TDLib по умолчанию и так 0/""
         try:
-            msg_id = await self._send_media(chat_id, "inputMessageSticker", "sticker", sticker, {},
-                                            reply_to)
+            msg_id = await self._send_media(chat_id, "inputMessageSticker", "sticker", sticker,
+                                            {"emoji": ""}, reply_to, inner={"width": 0, "height": 0})
         except TransportError as exc:
-            key = self._file_keys.get("inputMessageSticker") or "sticker"
-            log.warning("стикер %s: sendMessage (%s) отклонён: %s; input_message_content=%s",
-                        short, how, exc,
-                        json.dumps({"@type": "inputMessageSticker", key: sticker}, ensure_ascii=False))
+            log.warning("стикер %s: sendMessage (%s) отклонён: %s", short, how, exc)
             raise
         log.info("стикер %s: отправлен в чат %s через %s", short, chat_id, how)
         return msg_id
@@ -383,21 +393,42 @@ class TdlibAdapter:
         log.info("стикер %s: скачан в %s", short, path)
         return str(path)
 
-    async def _send_media(self, chat_id: int, msg_type: str, default_key: str, file: TdObject,
-                          extra: TdObject, reply_to: int | None) -> int:
-        """sendMessage с файлом; если TDLib не видит поле файла — узнать его имя и повторить."""
-        key = self._file_keys.get(msg_type) or default_key
-        try:
-            return await self._send(chat_id, {"@type": msg_type, key: file, **extra}, reply_to)
-        except TransportError as exc:
-            if _NO_FILE not in str(exc) or msg_type in self._file_keys:
-                raise
-            real = await self._discover_file_key(
-                msg_type, lambda probe: {"@type": "sendMessage", "chat_id": self._me,
-                                         "input_message_content": {"@type": msg_type, **probe}})
-            if real is None or real == key:
-                raise
-        return await self._send(chat_id, {"@type": msg_type, real: file, **extra}, reply_to)
+    def _media_content(self, msg_type: str, key: str, file: TdObject, extra: TdObject,
+                       inner: TdObject, mode: str) -> TdObject:
+        if mode == "wrapped":
+            wrapper = _WRAPPERS[msg_type]
+            inner_key = self._file_keys.get(wrapper) or key
+            return {"@type": msg_type, key: {"@type": wrapper, inner_key: file, **inner}, **extra}
+        return {"@type": msg_type, key: file, **inner, **extra}
+
+    async def _send_media(self, chat_id: int, msg_type: str, key: str, file: TdObject,
+                          extra: TdObject, reply_to: int | None,
+                          inner: TdObject | None = None) -> int:
+        """sendMessage с файлом: сначала формат с обёрткой, при ошибке формата — старый."""
+        inner = inner or {}
+        cached = self._media_mode.get(msg_type)
+        if cached:
+            modes = [cached]
+        else:
+            modes = ["wrapped", "flat"] if msg_type in _WRAPPERS else ["flat"]
+        first: TransportError | None = None
+        for mode in modes:
+            content = self._media_content(msg_type, key, file, extra, inner, mode)
+            try:
+                msg_id = await self._send(chat_id, content, reply_to)
+            except TransportError as exc:
+                log.warning("%s (%s): sendMessage отклонён: %s; input_message_content=%s",
+                            msg_type, mode, exc, json.dumps(content, ensure_ascii=False))
+                if cached or not _format_error(exc):
+                    raise
+                first = first or exc
+                continue
+            if not cached:
+                self._media_mode[msg_type] = mode
+                log.info("TDLib %s: формат %s", msg_type, mode)
+            return msg_id
+        assert first is not None
+        raise first
 
     async def _discover_file_key(self, cls: str,
                                  build: Callable[[TdObject], TdObject]) -> str | None:
@@ -411,20 +442,21 @@ class TdlibAdapter:
             m = _KEY_FOUND.search(str(exc))
             if m:
                 found = m.group(1)
-                log.warning("TDLib %s: поле файла называется %r", cls, found)
+                log.info("TDLib %s: поле файла называется %r", cls, found)
             else:
-                log.warning("TDLib %s: поле файла не найдено среди кандидатов: %s", cls, exc)
+                log.warning("TDLib %s: поле файла не найдено: %s", cls, exc)
         self._file_keys[cls] = found
         return found
 
     async def file_keys(self) -> dict[str, str | None]:
-        """Имена полей файла для всех типов медиа (для /tdprobe)."""
+        """Имя поля файла внутри каждой обёртки (для /tdprobe)."""
         out: dict[str, str | None] = {}
-        for cls in ("inputMessagePhoto", "inputMessageSticker", "inputMessageDocument",
-                    "inputMessageVoiceNote"):
-            out[cls] = await self._discover_file_key(
-                cls, lambda probe, cls=cls: {"@type": "sendMessage", "chat_id": self._me,
-                                             "input_message_content": {"@type": cls, **probe}})
+        for cls, wrapper in _WRAPPERS.items():
+            key = _MEDIA_FIELD[cls]
+            out[wrapper] = await self._discover_file_key(
+                wrapper, lambda probe, cls=cls, key=key, wrapper=wrapper: {
+                    "@type": "sendMessage", "chat_id": self._me,
+                    "input_message_content": {"@type": cls, key: {"@type": wrapper, **probe}}})
         return out
 
     async def td_version(self) -> str:
@@ -435,15 +467,23 @@ class TdlibAdapter:
         return str(opt.get("value") or "?")
 
     async def probe_files(self, chat_id: int) -> list[str]:
-        """Диагностика: читает ли TDLib поле файла. Ни одна проба не должна отправить сообщение."""
+        """Диагностика формата файлов. Пути несуществующие — ничего настоящего не уйдёт."""
         missing: TdObject = {"@type": "inputFileLocal", "path": "/nonexistent/alya-probe.jpg"}
+
+        def wrap(cls: str, file: TdObject) -> TdObject:
+            key = _MEDIA_FIELD[cls]
+            return {"@type": cls, key: {"@type": _WRAPPERS[cls], key: file}}
+
         probes: list[tuple[str, TdObject]] = [
-            ("A фото, несуществующий путь", {"@type": "inputMessagePhoto", "photo": missing}),
-            ("B фото, неизвестный класс файла",
-             {"@type": "inputMessagePhoto", "photo": {"@type": "inputFileAlyaProbe"}}),
+            ("A фото в inputPhoto, несуществующий путь", wrap("inputMessagePhoto", missing)),
+            ("B фото в inputPhoto, неизвестный класс файла",
+             wrap("inputMessagePhoto", {"@type": "inputFileAlyaProbe"})),
             ("C неизвестный класс сообщения", {"@type": "inputMessageAlyaProbe"}),
-            ("D документ, несуществующий путь", {"@type": "inputMessageDocument", "document": missing}),
-            ("E стикер, несуществующий путь", {"@type": "inputMessageSticker", "sticker": missing}),
+            ("D документ в inputDocument, несуществующий путь", wrap("inputMessageDocument", missing)),
+            ("E стикер в inputSticker, несуществующий путь", wrap("inputMessageSticker", missing)),
+            ("F голосовое в inputVoiceNote, несуществующий путь",
+             wrap("inputMessageVoiceNote", missing)),
+            ("G фото без обёртки (старый формат)", {"@type": "inputMessagePhoto", "photo": missing}),
         ]
         out = [f"TDLib {await self.td_version()}, привязка {type(getattr(self._client, '_td', None)).__name__}"]
         for label, content in probes:
@@ -453,8 +493,8 @@ class TdlibAdapter:
                 out.append(f"{label}: {exc}")
             else:
                 out.append(f"{label}: принято (id {msg_id})")
-        for cls, key in (await self.file_keys()).items():
-            out.append(f"поле файла {cls}: {key or 'не найдено'}")
+        for wrapper, key in (await self.file_keys()).items():
+            out.append(f"поле файла внутри {wrapper}: {key or 'не найдено'}")
         log.info("tdprobe: %s", " | ".join(out))
         return out
 

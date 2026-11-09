@@ -1,4 +1,4 @@
-"""TDLib с переименованным полем файла: адаптер узнаёт имя и повторяет отправку."""
+"""Формат медиа для новой (обёртки inputPhoto/inputSticker/...) и старой схемы TDLib."""
 
 from __future__ import annotations
 
@@ -10,92 +10,108 @@ from alya.telegram.tdlib.client import TdError
 from alya.telegram.transport import TransportError
 from tests.test_tdlib import ME, FakeRequester
 
-SCHEMA = {"inputMessagePhoto": "photo_file", "inputMessageSticker": "sticker_file",
-          "inputMessageDocument": "document_file", "inputMessageVoiceNote": "voice_note_file",
-          "inputChatPhotoStatic": "photo_file"}
+FIELDS = {"inputMessagePhoto": "photo", "inputMessageSticker": "sticker",
+          "inputMessageDocument": "document", "inputMessageVoiceNote": "voice_note"}
+NO_FILE = "InputFile is not specified"
 
 
-def parse_file(obj: dict[str, Any], schema: dict[str, str]) -> None:
-    """Как JSON-парсер TDLib: читает только известное поле, лишние ключи игнорирует."""
-    key = schema[obj["@type"]]
-    file = obj.get(key)
-    if file is None:
-        raise TdError(400, "InputFile is not specified")
-    if not str(file.get("@type", "")).startswith("inputFile") or "AlyaKey" in file["@type"]:
-        raise TdError(400, f'Failed to parse JSON object as TDLib request: Unknown class "{file["@type"]}"')
+def check_file(f: Any) -> None:
+    if not isinstance(f, dict):
+        raise TdError(400, NO_FILE)
+    t = str(f.get("@type", ""))
+    if t not in ("inputFileLocal", "inputFileId", "inputFileRemote"):
+        raise TdError(400, f'Failed to parse JSON object as TDLib request: Unknown class "{t}"')
 
 
-class RenamedTd(FakeRequester):
-    def __init__(self, schema: dict[str, str] | None = None) -> None:
+def parse(content: dict[str, Any], wrapped: bool) -> None:
+    """Как JSON-парсер TDLib: у конкретной обёртки @type не проверяется, читаются поля."""
+    key = FIELDS[content["@type"]]
+    value = content.get(key)
+    if wrapped:
+        if not isinstance(value, dict):
+            raise TdError(400, NO_FILE)
+        check_file(value.get(key))
+    else:
+        check_file(value)
+
+
+class SchemaTd(FakeRequester):
+    def __init__(self, wrapped: bool, reject_all: bool = False) -> None:
         super().__init__()
-        self.schema = SCHEMA if schema is None else schema
+        self.wrapped = wrapped
+        self.reject_all = reject_all
         self.sent: list[dict[str, Any]] = []
 
     async def request(self, query: dict[str, Any], *, timeout: float | None = None) -> dict[str, Any]:
-        if query["@type"] == "sendMessage":
+        if query["@type"] == "sendMessage" and query["input_message_content"]["@type"] in FIELDS:
             content = query["input_message_content"]
-            if content["@type"] in self.schema:
-                try:
-                    parse_file(content, self.schema)
-                except TdError:
-                    self.requests.append(query)
-                    raise
-                self.sent.append(content)  # успешный sendMessage запишет родитель
-        if query["@type"] == "setProfilePhoto":
-            self.requests.append(query)
-            parse_file(query["photo"], self.schema)
-            self.sent.append(query["photo"])
-            return {"@type": "ok"}
+            try:
+                if self.reject_all:
+                    raise TdError(400, NO_FILE)
+                parse(content, self.wrapped)
+            except TdError:
+                self.requests.append(query)
+                raise
+            self.sent.append(content)  # успешный sendMessage запишет родитель
         return await super().request(query, timeout=timeout)
 
 
-class FileKeyTests(unittest.IsolatedAsyncioTestCase):
-    def adapter(self, req: RenamedTd) -> TdlibAdapter:
+LOCAL = {"@type": "inputFileLocal", "path": "/tmp/a.jpg"}
+
+
+class MediaFormatTests(unittest.IsolatedAsyncioTestCase):
+    def adapter(self, req: SchemaTd) -> TdlibAdapter:
         ad = TdlibAdapter(req, me_id=ME, send_timeout_s=2)
         req.adapter = ad
         return ad
 
-    async def test_photo_discovers_key_and_retries(self) -> None:
-        req = RenamedTd()
+    async def test_new_schema_photo_wrapped(self) -> None:
+        req = SchemaTd(wrapped=True)
         ad = self.adapter(req)
         await ad.send_photo(5, "/tmp/a.jpg", caption="привет")
-        self.assertEqual(req.sent[-1]["photo_file"], {"@type": "inputFileLocal", "path": "/tmp/a.jpg"})
+        self.assertEqual(len(req.requests), 1)
+        self.assertEqual(req.sent[-1]["photo"], {"@type": "inputPhoto", "photo": LOCAL,
+                                                "width": 0, "height": 0})
         self.assertEqual(req.sent[-1]["caption"]["text"], "привет")
-        n = len(req.requests)
-        await ad.send_photo(5, "/tmp/b.jpg")
-        self.assertEqual(len(req.requests), n + 1)  # имя запомнено, без повторной пробы
 
-    async def test_sticker_and_voice(self) -> None:
-        req = RenamedTd()
+    async def test_new_schema_sticker_matches_doc(self) -> None:
+        req = SchemaTd(wrapped=True)
         ad = self.adapter(req)
-        await ad._send_sticker_step(5, {"@type": "inputFileId", "id": 7}, None, "x", "inputFileId")
-        self.assertIn("sticker_file", req.sent[-1])
+        await ad._send_sticker_step(5, {"@type": "inputFileId", "id": 1240}, None, "x", "inputFileId")
+        self.assertEqual(req.sent[-1], {
+            "@type": "inputMessageSticker",
+            "sticker": {"@type": "inputSticker", "sticker": {"@type": "inputFileId", "id": 1240},
+                        "width": 0, "height": 0},
+            "emoji": ""})
+
+    async def test_new_schema_voice(self) -> None:
+        req = SchemaTd(wrapped=True)
+        ad = self.adapter(req)
         await ad.send_voice(5, "/tmp/v.ogg", 3)
-        self.assertIn("voice_note_file", req.sent[-1])
-        self.assertEqual(req.sent[-1]["duration"], 3)
+        self.assertEqual(req.sent[-1]["voice_note"]["@type"], "inputVoiceNote")
+        self.assertEqual(req.sent[-1]["voice_note"]["duration"], 3)
 
-    async def test_avatar(self) -> None:
-        req = RenamedTd()
-        ad = self.adapter(req)
-        await ad.set_avatar("/tmp/a.jpg")
-        self.assertIn("photo_file", req.sent[-1])
-
-    async def test_normal_schema_no_probe(self) -> None:
-        req = RenamedTd({"inputMessagePhoto": "photo"})
+    async def test_old_schema_falls_back_and_remembers(self) -> None:
+        req = SchemaTd(wrapped=False)
         ad = self.adapter(req)
         await ad.send_photo(5, "/tmp/a.jpg")
-        self.assertEqual(len(req.requests), 1)
+        self.assertEqual(req.sent[-1]["photo"], LOCAL)
+        self.assertEqual(req.sent[-1]["width"], 0)
+        n = len(req.requests)
+        await ad.send_photo(5, "/tmp/a.jpg")
+        self.assertEqual(len(req.requests), n + 1)  # формат запомнен
 
-    async def test_unknown_name_gives_original_error(self) -> None:
-        req = RenamedTd({"inputMessagePhoto": "zzz"})
+    async def test_both_fail_raise(self) -> None:
+        req = SchemaTd(wrapped=True, reject_all=True)
         ad = self.adapter(req)
         with self.assertRaises(TransportError) as cm:
             await ad.send_photo(5, "/tmp/a.jpg")
-        self.assertIn("InputFile is not specified", str(cm.exception))
+        self.assertIn(NO_FILE, str(cm.exception))
+        self.assertEqual(len(req.requests), 2)
 
-    async def test_file_keys_report(self) -> None:
-        req = RenamedTd()
+    async def test_file_keys_inside_wrappers(self) -> None:
+        req = SchemaTd(wrapped=True)
         ad = self.adapter(req)
         keys = await ad.file_keys()
-        self.assertEqual(keys["inputMessagePhoto"], "photo_file")
-        self.assertEqual(keys["inputMessageVoiceNote"], "voice_note_file")
+        self.assertEqual(keys, {"inputPhoto": "photo", "inputSticker": "sticker",
+                                "inputVoiceNote": "voice_note", "inputDocument": "document"})

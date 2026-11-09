@@ -33,7 +33,7 @@ class StickerRequester(FakeRequester):
                 raise res
             return res
         if kind == "sendMessage":
-            how = query["input_message_content"]["sticker"]["@type"]
+            how = _file(query["input_message_content"]["sticker"])["@type"]
             if how in self.reject:
                 self.requests.append(query)
                 raise self.reject[how]
@@ -45,10 +45,20 @@ class StickerRequester(FakeRequester):
         return await super().request(query, timeout=timeout)
 
     def sent(self) -> list[dict[str, Any]]:
-        # пробы имени поля (inputFileAlyaKey_*) не считаются отправками
-        return [q["input_message_content"]["sticker"] for q in self.requests
-                if q["@type"] == "sendMessage"
-                and "AlyaKey" not in str(q["input_message_content"]["sticker"].get("@type"))]
+        # считаем только основной формат (обёртка inputSticker): повторы в старом
+        # формате и пробы имён полей (inputFileAlyaKey_*) не считаются
+        out = []
+        for q in self.requests:
+            if q["@type"] != "sendMessage":
+                continue
+            st = q["input_message_content"]["sticker"]
+            if st.get("@type") == "inputSticker" and "AlyaKey" not in str(st.get("sticker")):
+                out.append(st["sticker"])
+        return out
+
+
+def _file(sticker: dict[str, Any]) -> dict[str, Any]:
+    return sticker["sticker"] if sticker.get("@type") == "inputSticker" else sticker
 
 
 def _input_file_error() -> TdError:
@@ -138,7 +148,11 @@ class StickerShapeTests(unittest.IsolatedAsyncioTestCase):
         await ad.send_sticker(5, RID)
         send = [q for q in req.requests if q["@type"] == "sendMessage"][0]
         self.assertEqual(send["input_message_content"],
-                         {"@type": "inputMessageSticker", "sticker": {"@type": "inputFileId", "id": 77}})
+                         {"@type": "inputMessageSticker",
+                          "sticker": {"@type": "inputSticker",
+                                      "sticker": {"@type": "inputFileId", "id": 77},
+                                      "width": 0, "height": 0},
+                          "emoji": ""})
 
     async def test_failure_logs_exact_content(self) -> None:
         req = StickerRequester()
