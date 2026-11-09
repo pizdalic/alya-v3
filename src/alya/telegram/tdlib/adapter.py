@@ -372,6 +372,28 @@ class TdlibAdapter:
             return "?"
         return str(opt.get("value") or "?")
 
+    async def probe_files(self, chat_id: int) -> list[str]:
+        """Диагностика: читает ли TDLib поле файла. Ни одна проба не должна отправить сообщение."""
+        missing: TdObject = {"@type": "inputFileLocal", "path": "/nonexistent/alya-probe.jpg"}
+        probes: list[tuple[str, TdObject]] = [
+            ("A фото, несуществующий путь", {"@type": "inputMessagePhoto", "photo": missing}),
+            ("B фото, неизвестный класс файла",
+             {"@type": "inputMessagePhoto", "photo": {"@type": "inputFileAlyaProbe"}}),
+            ("C неизвестный класс сообщения", {"@type": "inputMessageAlyaProbe"}),
+            ("D документ, несуществующий путь", {"@type": "inputMessageDocument", "document": missing}),
+            ("E стикер, несуществующий путь", {"@type": "inputMessageSticker", "sticker": missing}),
+        ]
+        out = [f"TDLib {await self.td_version()}, привязка {type(getattr(self._client, '_td', None)).__name__}"]
+        for label, content in probes:
+            try:
+                msg_id = await self._send(chat_id, content, None)
+            except TransportError as exc:
+                out.append(f"{label}: {exc}")
+            else:
+                out.append(f"{label}: принято (id {msg_id})")
+        log.info("tdprobe: %s", " | ".join(out))
+        return out
+
     async def react(self, chat_id: int, message_id: int, emoji: str) -> None:
         await self._client.request({
             "@type": "addMessageReaction", "chat_id": chat_id, "message_id": message_id,
