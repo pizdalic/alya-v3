@@ -85,3 +85,38 @@ context_budget_tokens = 6000 # бюджет контекста на один о�
 recall_k = 8                 # сколько воспоминаний подтягивать
 temperature = 0.9
 max_reply_tokens = 400
+
+[media]
+# Модели задаются в [llm.roles.vision|stt|tts|image]; нет роли — функция выключена.
+# Веб-поиск идёт через роль utility (или chat) с плагином web OpenRouter.
+vision = true
+stt = true
+tts = true
+images = true
+stickers = true
+reactions = true
+web_search = true
+stt_api = "chat"              # chat (input_audio, OpenRouter) | transcriptions (/audio/transcriptions)
+tts_voice = "nova"
+max_image_bytes = 10485760     # 10 МБ
+max_voice_seconds = 120
+max_voice_bytes = 20971520
+media_dir = "runtime/media"
+web_search_results = 3
+selfie_private_only = true     # «селфи» только в личке
+
+[media.per_hour]               # 0 — выключить вид
+vision = 30
+stt = 30
+tts = 10
+image = 3
+search = 10
+reaction = 60
+sticker = 30
+
+[media.per_day]
+vision = 200
+stt = 200
+tts = 40
+image = 10
+search = 60

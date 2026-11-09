@@ -168,6 +168,46 @@ class DreamSection(_Section):
         return self
 
 
+_MEDIA_KINDS = ("vision", "stt", "tts", "image", "search", "reaction", "sticker")
+
+
+class MediaSection(_Section):
+    """Мультимодальность и инструменты (Phase 6). Модели — в llm.roles: vision/stt/tts/image."""
+
+    vision: bool = True          # смотреть фото
+    stt: bool = True             # слушать голосовые и кружки
+    tts: bool = True             # иногда отвечать голосом
+    images: bool = True          # «селфи» по просьбе
+    stickers: bool = True
+    reactions: bool = True
+    web_search: bool = True
+    stt_api: Literal["chat", "transcriptions"] = "chat"
+    tts_voice: str = Field(default="nova", min_length=1, max_length=40)
+    tts_instructions: str = Field(default="молодая девушка, тихо и нежно, по-русски",
+                                  max_length=300)
+    max_image_bytes: int = Field(default=10 * 1024 * 1024, ge=1024, le=50 * 1024 * 1024)
+    max_voice_seconds: int = Field(default=120, ge=5, le=600)
+    max_voice_bytes: int = Field(default=20 * 1024 * 1024, ge=1024, le=50 * 1024 * 1024)
+    media_dir: Path = Path("runtime/media")
+    web_search_results: int = Field(default=3, ge=1, le=10)
+    selfie_private_only: bool = True
+    per_hour: dict[str, int] = Field(default_factory=lambda: {
+        "vision": 30, "stt": 30, "tts": 10, "image": 3, "search": 10, "reaction": 60,
+        "sticker": 30})
+    per_day: dict[str, int] = Field(default_factory=lambda: {
+        "vision": 200, "stt": 200, "tts": 40, "image": 10, "search": 60})
+
+    @field_validator("per_hour", "per_day")
+    @classmethod
+    def _kinds(cls, value: dict[str, int]) -> dict[str, int]:
+        unknown = sorted(set(value) - set(_MEDIA_KINDS))
+        if unknown:
+            raise ValueError(f"неизвестные виды лимитов: {', '.join(unknown)}")
+        if any(v < 0 for v in value.values()):
+            raise ValueError("лимит не может быть отрицательным")
+        return value
+
+
 class Settings(_Section):
     app: AppSection = Field(default_factory=AppSection)
     telegram: TelegramSection = Field(default_factory=TelegramSection)
@@ -178,6 +218,7 @@ class Settings(_Section):
     memory: MemorySection = Field(default_factory=MemorySection)
     character: CharacterSection = Field(default_factory=CharacterSection)
     dream: DreamSection = Field(default_factory=DreamSection)
+    media: MediaSection = Field(default_factory=MediaSection)
 
     def problems_for_run(self) -> list[str]:
         """Чего не хватает для полноценной работы (формально конфиг при этом валиден)."""
