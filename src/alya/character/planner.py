@@ -25,8 +25,29 @@ PLAN_SCHEMA = """{
   "trust": 0.0,                    // как меняется доверие, -1..1
   "sincere_ai_question": false,    // true — тебя всерьёз и прямо спрашивают, ИИ ли ты
   "remember": [],                  // до 2 новых важных фактов о собеседнике, от третьего лица
-  "constraints": []                // чего избегать в ответе
+  "constraints": [],               // чего избегать в ответе
+  "reaction": "",                  // эмодзи-реакция на сообщение собеседника или "" (редко, только к месту)
+  "sticker": "",                   // эмодзи стикера после ответа или "" (редко)
+  "voice": false,                  // true — ответить голосовым (очень редко: просят или очень к месту)
+  "selfie": "",                    // просят твоё фото — что на нём, коротко; иначе ""
+  "search": ""                     // нужен свежий факт из интернета — поисковый запрос; иначе ""
 }"""
+
+# Реакции, которые Telegram разрешает по умолчанию; грубые убраны — Аля милая.
+REACTIONS = frozenset({
+    "👍", "❤", "🔥", "🥰", "👏", "😁", "🤔", "🤯", "😱", "😢", "🎉", "🤩", "🙏", "👌",
+    "🕊", "🥱", "😍", "🐳", "❤‍🔥", "🌚", "💯", "🤣", "⚡", "🏆", "💔", "🤨", "😐", "🍓",
+    "💋", "😈", "😴", "😭", "🤓", "👻", "👀", "🎃", "🙈", "😇", "😨", "🤝", "✍", "🤗",
+    "🫡", "🎄", "☃", "💅", "🤪", "🗿", "🆒", "💘", "🙉", "🦄", "😘", "🙊", "😎", "👾",
+    "🤷", "😡",
+})
+
+
+def _emoji(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    e = value.replace("\ufe0f", "").strip()
+    return e if 0 < len(e) <= 4 and not any(ch.isalnum() for ch in e) else ""
 
 
 def _clamp(value: Any, lo: float, hi: float) -> float:
@@ -66,6 +87,27 @@ class Plan(BaseModel):
     sincere_ai_question: bool = False
     remember: list[str] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)
+    reaction: str = ""
+    sticker: str = ""
+    voice: bool = False
+    selfie: str = ""
+    search: str = ""
+
+    @field_validator("reaction", mode="before")
+    @classmethod
+    def _reaction(cls, v: Any) -> str:
+        e = _emoji(v)
+        return e if e in REACTIONS else ""
+
+    @field_validator("sticker", mode="before")
+    @classmethod
+    def _sticker(cls, v: Any) -> str:
+        return _emoji(v)
+
+    @field_validator("selfie", "search", mode="before")
+    @classmethod
+    def _request200(cls, v: Any) -> str:
+        return _short(v, 200) if isinstance(v, str) else ""
 
     @field_validator("intent", "emotion_reason", mode="before")
     @classmethod
@@ -112,7 +154,7 @@ class Plan(BaseModel):
             return []
         return [_short(x, 150) for x in v if isinstance(x, str) and x.strip()][:5]
 
-    @field_validator("should_reply", "sincere_ai_question", mode="before")
+    @field_validator("should_reply", "sincere_ai_question", "voice", mode="before")
     @classmethod
     def _bool(cls, v: Any) -> bool:
         if isinstance(v, str):
