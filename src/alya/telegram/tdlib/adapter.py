@@ -302,9 +302,22 @@ class TdlibAdapter:
 
     async def send_sticker(self, chat_id: int, remote_id: str, *,
                            reply_to: int | None = None) -> int:
+        remote_id = remote_id.strip()
+        if not remote_id:
+            raise TransportError("у стикера нет идентификатора", permanent=True)
+        # Сохранённый remote_id сначала превращаем в локальный файл TDLib и шлём по его id:
+        # так TDLib не теряет InputFile, а битый id сразу даёт понятную ошибку.
+        file = await self._client.request({
+            "@type": "getRemoteFile", "remote_file_id": remote_id,
+            "file_type": {"@type": "fileTypeSticker"}})
+        file_id = file.get("id")
+        if isinstance(file_id, int) and file_id > 0:
+            sticker: TdObject = {"@type": "inputFileId", "id": file_id}
+        else:
+            log.warning("getRemoteFile не вернул id файла, шлю по remote_id")
+            sticker = {"@type": "inputFileRemote", "id": remote_id}
         return await self._send(chat_id, {
-            "@type": "inputMessageSticker",
-            "sticker": {"@type": "inputFileRemote", "id": remote_id},
+            "@type": "inputMessageSticker", "sticker": sticker,
             "width": 0, "height": 0, "emoji": ""}, reply_to)
 
     async def react(self, chat_id: int, message_id: int, emoji: str) -> None:
