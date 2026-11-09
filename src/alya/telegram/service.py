@@ -102,6 +102,7 @@ class TelegramService:
             me_id = int(me["id"])
             username = username_of(me)
             adapter = TdlibAdapter(client, me_id=me_id)
+            log.info("TDLib %s", await adapter.td_version())
         classifier = (LLMAddresseeClassifier(self._classifier_chat)
                       if tg.gray_zone_llm and self._classifier_chat is not None else None)
         detector = AddresseeDetector(me_id, username, tg.alya_names,

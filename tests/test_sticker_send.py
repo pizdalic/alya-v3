@@ -126,3 +126,32 @@ class StickerSendTests(unittest.IsolatedAsyncioTestCase):
             await self.ad.send_sticker(5, "  ")
         self.assertTrue(err.exception.permanent)
         self.assertEqual(self.req.requests, [])
+
+
+class StickerShapeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_content_is_minimal(self) -> None:
+        req = StickerRequester()
+        ad = TdlibAdapter(req, me_id=ME, send_timeout_s=2)
+        req.adapter = ad
+        await ad.send_sticker(5, RID)
+        send = [q for q in req.requests if q["@type"] == "sendMessage"][0]
+        self.assertEqual(send["input_message_content"],
+                         {"@type": "inputMessageSticker", "sticker": {"@type": "inputFileId", "id": 77}})
+
+    async def test_failure_logs_exact_content(self) -> None:
+        req = StickerRequester()
+        req.reject["inputFileId"] = TdError(403, "CHAT_WRITE_FORBIDDEN")
+        ad = TdlibAdapter(req, me_id=ME, send_timeout_s=2)
+        req.adapter = ad
+        with self.assertLogs(LOG, "WARNING") as logs, self.assertRaises(TransportError):
+            await ad.send_sticker(5, RID)
+        self.assertIn('input_message_content={"@type": "inputMessageSticker"', "\n".join(logs.output))
+
+    async def test_td_version(self) -> None:
+        class V(StickerRequester):
+            async def request(self, query, *, timeout=None):  # type: ignore[no-untyped-def]
+                if query["@type"] == "getOption":
+                    return {"@type": "optionValueString", "value": "1.8.70"}
+                return await super().request(query, timeout=timeout)
+        ad = TdlibAdapter(V(), me_id=ME, send_timeout_s=2)
+        self.assertEqual(await ad.td_version(), "1.8.70")
