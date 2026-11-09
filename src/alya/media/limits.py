@@ -61,6 +61,21 @@ class UsageLimiter:
 
         return await self._db.transaction(op)
 
+    async def check(self, kind: UsageKind) -> str | None:
+        """Почему take() сейчас вернёт False, или None. Ничего не записывает."""
+        hour_limit = self._hour.get(kind, 0)
+        if hour_limit <= 0:
+            return f"{kind} выключено"
+        used = await self.used(kind, hours=1)
+        if used >= hour_limit:
+            return f"лимит {kind} за час исчерпан ({used}/{hour_limit})"
+        day_limit = self._day.get(kind)
+        if day_limit is not None:
+            used_day = await self.used(kind, hours=24)
+            if used_day >= day_limit:
+                return f"суточный лимит {kind} исчерпан ({used_day}/{day_limit})"
+        return None
+
     async def used(self, kind: UsageKind, *, hours: int = 24) -> int:
         rows = await self._db.fetchall(
             "SELECT count(*) FROM media_usage WHERE kind = ? AND at > ?",

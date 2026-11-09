@@ -38,6 +38,7 @@ class ReplyActions:
     sticker: str = ""    # эмодзи, по которому выбирается стикер
     voice: bool = False  # ответить голосовым вместо текста
     selfie: str = ""     # сцена для фото «себя»
+    sticker_id: str = ""  # remote_id, уже выбранный до ответа (пусто — выбрать по эмодзи)
 
     @property
     def empty(self) -> bool:

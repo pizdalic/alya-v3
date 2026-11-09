@@ -83,19 +83,46 @@ async def outgoing(kit: MediaKit | None, *, chat_id: int, sender_id: int,
             items.append((f"{base}:{i}", {"text": part, "reply_to": reply_to if i == 0 else None,
                                           "typing_s": round(typing(part), 2),
                                           "addressees": who}))
+    wants = bool(acts.sticker or acts.selfie)
+    if wants:
+        log.info("медиа %s: sticker=%r sticker_id=%r selfie=%r", base, acts.sticker,
+                 acts.sticker_id[:16], acts.selfie)
     if kit is None or not parts:
+        if wants:
+            log.info("медиа %s пропущено: %s", base,
+                     "медиа выключены" if kit is None else "нет текста ответа")
         return items
-    if acts.sticker and kit.stickers is not None:
-        remote = await kit.stickers.pick(acts.sticker)
-        if remote and await kit.limiter.take("sticker", chat_id):
-            items.append((f"{base}:s", {"kind": "sticker", "remote_id": remote,
-                                        "emoji": acts.sticker, "typing_s": 0,
-                                        "addressees": who}))
-    if acts.selfie and (last.is_private or not kit.selfie_private_only):
-        photo = await _selfie(kit, base, chat_id, acts.selfie, who)
-        if photo is not None:
-            items.append(photo)
+    if acts.sticker:
+        sticker = await _sticker(kit, base, chat_id, acts, who)
+        if sticker is not None:
+            items.append(sticker)
+    if acts.selfie:
+        if last.is_private or not kit.selfie_private_only:
+            photo = await _selfie(kit, base, chat_id, acts.selfie, who)
+            if photo is not None:
+                items.append(photo)
+        else:
+            log.info("селфи %s пропущено: только в личке", base)
     return items
+
+
+async def _sticker(kit: MediaKit, base: str, chat_id: int, acts: ReplyActions,
+                   who: list[int]) -> tuple[str, Payload] | None:
+    if kit.stickers is None:
+        log.info("стикер %s пропущен: стикеры выключены", base)
+        return None
+    remote = acts.sticker_id or await kit.stickers.pick(acts.sticker)
+    if not remote:
+        log.info("стикер %s пропущен: в базе нет стикера под %r", base, acts.sticker)
+        return None
+    if not await kit.limiter.take("sticker", chat_id):
+        log.info("стикер %s пропущен: %s", base,
+                 await kit.limiter.check("sticker") or "лимит sticker")
+        return None
+    key = f"{base}:s"
+    log.info("стикер %s в очереди: %r -> %s", key, acts.sticker, remote[:16])
+    return key, {"kind": "sticker", "remote_id": remote, "emoji": acts.sticker,
+                 "typing_s": 0, "addressees": who}
 
 
 async def _voice(kit: MediaKit, base: str, chat_id: int, parts: Sequence[str],
@@ -120,8 +147,11 @@ async def _voice(kit: MediaKit, base: str, chat_id: int, parts: Sequence[str],
 async def _selfie(kit: MediaKit, base: str, chat_id: int, scene: str,
                   who: list[int]) -> tuple[str, Payload] | None:
     if kit.images is None or kit.selfie_prompt is None:
+        log.info("селфи %s пропущено: генерация изображений выключена", base)
         return None
     if not await kit.limiter.take("image", chat_id):
+        log.info("селфи %s пропущено: %s", base,
+                 await kit.limiter.check("image") or "лимит image")
         return None
     key = f"{base}:p"
     try:
@@ -130,8 +160,9 @@ async def _selfie(kit: MediaKit, base: str, chat_id: int, scene: str,
         path = kit.out_path(key, ext)
         path.write_bytes(data)
     except Exception as exc:
-        log.warning("фото не сгенерировалось: %s", type(exc).__name__)
+        log.warning("селфи %s пропущено: фото не сгенерировалось: %s", key, type(exc).__name__)
         return None
+    log.info("селфи %s в очереди: %s", key, path)
     return key, {"kind": "photo", "path": str(path), "caption": "", "scene": scene,
                  "typing_s": 0, "addressees": who}
 

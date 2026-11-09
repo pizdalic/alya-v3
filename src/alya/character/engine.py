@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Protocol
@@ -36,6 +37,11 @@ _DENIAL = re.compile(
     r"(я\s+(живой|живая|настоящий|настоящая)\s+(человек|девушка))|"
     r"(я\s+(обычный|обычная)?\s*человек)|(не\s+бот\s+я)",
     re.I)
+_NO_MARKERS = ("Не пиши пометки вроде *фото*, *стикер*, [стикер] и названия наборов "
+               "стикеров: вложения прикладываются сами.")
+_NO_PHOTO = ("Фото сейчас отправить не получится: не пиши, что отправляешь или уже "
+             "отправила фото, и не описывай его. Можно мягко отказаться или пообещать позже.")
+_NO_STICKER = "Стикер сейчас не отправится: не пиши, что кидаешь стикер."
 _SPEAKER_PREFIX = re.compile(r"^\s*(аля|alya)\s*:\s*", re.I)
 MAX_REMINDER_DAYS = 365
 INITIATIVE_SCHEMA = """{
@@ -130,6 +136,7 @@ class CharacterEngine:
         planner: ChatModel | None = None,
         searcher: Searcher | None = None,
         limiter: UsageLimiter | None = None,
+        sticker_pick: Callable[[str], Awaitable[str | None]] | None = None,
         timezone: str = "Asia/Yekaterinburg",
         recall_k: int = 8,
         temperature: float = 0.9,
@@ -146,6 +153,7 @@ class CharacterEngine:
         self._memory = memory
         self._searcher = searcher
         self._limiter = limiter
+        self._sticker_pick = sticker_pick
         self._tz = ZoneInfo(timezone)
         self._k = recall_k
         self._temperature = temperature
@@ -244,12 +252,41 @@ class CharacterEngine:
                 f"На фото: {look}. Сцена: {' '.join(scene.split())[:200]}. "
                 "Без текста и водяных знаков, вся одежда на месте, никакого 18+.")
 
+    async def _media_gate(self, chat_id: int, plan: Plan) -> tuple[str, str, str, list[str]]:
+        """До текста ответа: какие медиа реально уйдут. (эмодзи, remote_id, сцена, заметки)."""
+        sticker, sticker_id, selfie = plan.sticker, "", plan.selfie
+        notes: list[str] = []
+        if sticker or selfie or plan.voice:
+            log.info("план медиа чат %s: sticker=%r selfie=%r voice=%s",
+                     chat_id, sticker, selfie, plan.voice)
+        if selfie and self._limiter is not None:
+            why = await self._limiter.check("image")
+            if why:
+                log.info("селфи не будет (чат %s): %s — текст без «отправки» фото", chat_id, why)
+                selfie = ""
+                notes.append(_NO_PHOTO)
+        if sticker and self._sticker_pick is not None:
+            why = await self._limiter.check("sticker") if self._limiter is not None else None
+            if not why:
+                sticker_id = await self._sticker_pick(sticker) or ""
+                if not sticker_id:
+                    why = f"в базе нет стикера под {sticker!r}"
+            if why:
+                log.info("стикера не будет (чат %s): %s", chat_id, why)
+                sticker = ""
+                notes.append(_NO_STICKER)
+            else:
+                log.info("стикер выбран (чат %s): %r -> %s", chat_id, sticker, sticker_id[:16])
+        return sticker, sticker_id, selfie, notes
+
     async def _answer(self, alloc: Allocation, turn: Turn, plan: Plan,
-                      facts: str = "") -> str:
+                      facts: str = "", notes: list[str] | None = None) -> str:
         guide = [f"План ответа: {plan.intent or 'ответить естественно'}."]
         if plan.tone:
             guide.append(f"Тон: {plan.tone}.")
         guide += [f"Избегай: {c}." for c in plan.constraints]
+        guide += list(notes or [])
+        guide.append(_NO_MARKERS)
         if plan.sincere_ai_question:
             guide.append("Тебя всерьёз спросили, ИИ ли ты: честно признай, что ты ИИ-персонаж, "
                          "в своём стиле, не выходя из образа.")
@@ -289,10 +326,12 @@ class CharacterEngine:
                                                  d_trust=plan.trust * 0.1)
 
         should_reply = self._decide(plan, turn, mood)
+        sticker, sticker_id, selfie = plan.sticker, "", plan.selfie
         if should_reply:
             alloc.state = self._state_text(turn, mood, rel, why)
             facts = await self._search(turn, plan)
-            text = await self._answer(alloc, turn, plan, facts)
+            sticker, sticker_id, selfie, notes = await self._media_gate(ctx.chat_id, plan)
+            text = await self._answer(alloc, turn, plan, facts, notes)
             if plan.sincere_ai_question and _denies_being_ai(text):
                 log.info("ответ отрицал ИИ на серьёзный вопрос — заменён честным")
                 text = self.character.core.honest_reply
@@ -303,9 +342,10 @@ class CharacterEngine:
         # реакция допустима и без текста; остальные действия — только вместе с ответом
         actions = ReplyActions(
             reaction=plan.reaction if turn.addressed else "",
-            sticker=plan.sticker if messages else "",
+            sticker=sticker if messages else "",
             voice=plan.voice and bool(messages) and not plan.sincere_ai_question,
-            selfie=plan.selfie if messages else "")
+            selfie=selfie if messages else "",
+            sticker_id=sticker_id if messages else "")
         return Reply(messages, plan, degraded, mood, rel, alloc.tokens, actions, bool(facts),
                      self._reminder(plan))
 

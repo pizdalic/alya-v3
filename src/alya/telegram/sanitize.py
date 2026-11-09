@@ -16,10 +16,14 @@ _SPACES = re.compile(r"[ \t]+")
 # Стикер шлётся отдельным полем плана, а в чат такие метки попадать не должны.
 _MARKER_INLINE = re.compile(r"\[(?:стикер|sticker|фото|голосовое|кружок|гиф|gif|видео)[^\]\n]*\]", re.IGNORECASE)
 _MARKER_LINE = re.compile(r"^(?:стикер|sticker)\s*[:：]\s*\S+$", re.IGNORECASE)
+# Ролевые пометки в звёздочках: «*фото*», «*стикер: LINE_White_Cat_Girl*», «*отправляет селфи*».
+_MARKER_STARS = re.compile(
+    r"\*{1,2}[^*\n]{0,40}?(?:стикер|sticker|фото|фотк|селфи|selfie|голосов|кружок|гиф|gif|видео)"
+    r"[^*\n]{0,80}\*{1,2}", re.IGNORECASE)
 
 
 def strip_media_markers(text: str) -> str:
-    text = _MARKER_INLINE.sub("", text)
+    text = _MARKER_STARS.sub("", _MARKER_INLINE.sub("", text))
     return "\n".join(line for line in text.split("\n") if not _MARKER_LINE.match(line.strip()))
 
 
