@@ -305,20 +305,63 @@ class TdlibAdapter:
         remote_id = remote_id.strip()
         if not remote_id:
             raise TransportError("у стикера нет идентификатора", permanent=True)
-        # Сохранённый remote_id сначала превращаем в локальный файл TDLib и шлём по его id:
-        # так TDLib не теряет InputFile, а битый id сразу даёт понятную ошибку.
-        file = await self._client.request({
-            "@type": "getRemoteFile", "remote_file_id": remote_id,
-            "file_type": {"@type": "fileTypeSticker"}})
+        short = remote_id[:16] + "…"
+
+        # шаг 1: remote_id -> файл TDLib
+        try:
+            file = await self._client.request({
+                "@type": "getRemoteFile", "remote_file_id": remote_id,
+                "file_type": {"@type": "fileTypeSticker"}})
+        except TransportError as exc:
+            log.warning("стикер %s: getRemoteFile отклонён: %s", short, exc)
+            raise
         file_id = file.get("id")
-        if isinstance(file_id, int) and file_id > 0:
-            sticker: TdObject = {"@type": "inputFileId", "id": file_id}
-        else:
-            log.warning("getRemoteFile не вернул id файла, шлю по remote_id")
-            sticker = {"@type": "inputFileRemote", "id": remote_id}
-        return await self._send(chat_id, {
-            "@type": "inputMessageSticker", "sticker": sticker,
-            "width": 0, "height": 0, "emoji": ""}, reply_to)
+        if not isinstance(file_id, int) or file_id <= 0:
+            log.warning("стикер %s: getRemoteFile вернул %s без id файла, шлю по remote_id",
+                        short, file.get("@type"))
+            return await self._send_sticker_step(
+                chat_id, {"@type": "inputFileRemote", "id": remote_id}, reply_to, short, "inputFileRemote")
+        log.info("стикер %s: getRemoteFile ok, file_id=%s", short, file_id)
+
+        # шаг 2: sendMessage с inputFileId
+        try:
+            return await self._send_sticker_step(
+                chat_id, {"@type": "inputFileId", "id": file_id}, reply_to, short, "inputFileId")
+        except TransportError as exc:
+            if getattr(exc, "code", None) != 400:
+                raise  # например 403: скачивание не поможет
+
+        # шаг 3: скачать файл и отправить как inputFileLocal
+        path = await self._download_sticker(file_id, short)
+        return await self._send_sticker_step(chat_id, _local(path), reply_to, short, "inputFileLocal")
+
+    async def _send_sticker_step(self, chat_id: int, sticker: TdObject, reply_to: int | None,
+                                 short: str, how: str) -> int:
+        content: TdObject = {"@type": "inputMessageSticker", "sticker": sticker,
+                             "width": 0, "height": 0, "emoji": ""}
+        try:
+            msg_id = await self._send(chat_id, content, reply_to)
+        except TransportError as exc:
+            log.warning("стикер %s: sendMessage (%s) отклонён: %s", short, how, exc)
+            raise
+        log.info("стикер %s: отправлен в чат %s через %s", short, chat_id, how)
+        return msg_id
+
+    async def _download_sticker(self, file_id: int, short: str) -> str:
+        try:
+            f = await self._client.request({"@type": "downloadFile", "file_id": file_id,
+                                            "priority": 32, "offset": 0, "limit": 0,
+                                            "synchronous": True}, timeout=120)
+        except TransportError as exc:
+            log.warning("стикер %s: downloadFile отклонён: %s", short, exc)
+            raise
+        local = f.get("local") or {}
+        path = local.get("path")
+        if not path or not local.get("is_downloading_completed"):
+            log.warning("стикер %s: downloadFile не докачал файл (path=%r)", short, path)
+            raise TransportError("стикер не скачался")
+        log.info("стикер %s: скачан в %s", short, path)
+        return str(path)
 
     async def react(self, chat_id: int, message_id: int, emoji: str) -> None:
         await self._client.request({
