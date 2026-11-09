@@ -145,3 +145,11 @@ group_max_per_day = 4
 channel_digest_hours = 12
 channel_max_facts = 3
 jitter = 0.08
+
+[plugins]                      # Phase 8: свои команды в личке (см. examples/plugins/dice.py)
+enabled = false
+dir = "plugins"                # файлы <name>.py с MANIFEST и async def handle
+timeout_s = 10
+
+[plugins.grants]               # загружается только то, что перечислено здесь
+# dice = ["reply", "storage"]  # разрешения: reply, recall, storage
