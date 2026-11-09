@@ -239,7 +239,8 @@ class ImageClient:
                                        temperature=0.9,
                                        extra={"modalities": ["image", "text"]})
         for item in message.get("images") or []:
-            url = ((item or {}).get("image_url") or {}).get("url", "") if isinstance(item, dict) else ""
+            url = (((item or {}).get("image_url") or {}).get("url", "")
+                   if isinstance(item, dict) else "")
             m = _DATA_URL.match(url.strip()) if isinstance(url, str) else None
             if not m:
                 continue

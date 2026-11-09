@@ -33,7 +33,9 @@ _STD_ATTRS = frozenset(vars(logging.makeLogRecord({})).keys()) | {"message", "as
 class Redactor:
     def __init__(self, secrets: Iterable[str] = ()) -> None:
         # Длинные секреты заменяем первыми, чтобы короткий префикс не оставил хвост.
-        self._secrets = sorted({s for s in secrets if len(s) >= MIN_SECRET_LEN}, key=len, reverse=True)
+        self._secrets = sorted(
+            {s for s in secrets if len(s) >= MIN_SECRET_LEN}, key=len, reverse=True
+        )
 
     def __call__(self, text: str) -> str:
         for secret in self._secrets:

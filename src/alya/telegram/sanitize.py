@@ -14,7 +14,9 @@ _SPACES = re.compile(r"[ \t]+")
 
 # Модель иногда пишет служебные метки медиа текстом («[стикер 🐱]», «стикер: LINE_White_Cat_Girl»).
 # Стикер шлётся отдельным полем плана, а в чат такие метки попадать не должны.
-_MARKER_INLINE = re.compile(r"\[(?:стикер|sticker|фото|голосовое|кружок|гиф|gif|видео)[^\]\n]*\]", re.IGNORECASE)
+_MARKER_INLINE = re.compile(
+    r"\[(?:стикер|sticker|фото|голосовое|кружок|гиф|gif|видео)[^\]\n]*\]", re.IGNORECASE
+)
 _MARKER_LINE = re.compile(r"^(?:стикер|sticker)\s*[:：]\s*\S+$", re.IGNORECASE)
 # Ролевые пометки в звёздочках: «*фото*», «*стикер: LINE_White_Cat_Girl*», «*отправляет селфи*».
 _MARKER_STARS = re.compile(

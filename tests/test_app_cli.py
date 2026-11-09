@@ -61,7 +61,8 @@ class CliTests(unittest.TestCase):
             self.assertEqual(out.strip(), "схема уже актуальна")
 
     def test_healthcheck_unreachable(self) -> None:
-        code, _, err = run_cli("healthcheck", "--url", "http://127.0.0.1:1/health", "--timeout", "1")
+        code, _, err = run_cli(
+            "healthcheck", "--url", "http://127.0.0.1:1/health", "--timeout", "1")
         self.assertEqual(code, EXIT_PROBLEMS)
         self.assertIn("недоступен", err)
 

@@ -62,7 +62,8 @@ class MigrationTests(unittest.TestCase):
         apply_migrations(self.db.conn)
         c = self.db.conn
         with self.assertRaises(sqlite3.IntegrityError):  # внешний ключ
-            c.execute("INSERT INTO messages (chat_id, tg_message_id, created_at) VALUES (1, 1, 't')")
+            c.execute("INSERT INTO messages (chat_id, tg_message_id, created_at) "
+                      "VALUES (1, 1, 't')")
         with self.assertRaises(sqlite3.IntegrityError):  # json_valid
             c.execute("INSERT INTO outbox (chat_id, idempotency_key, payload, next_attempt_at, "
                       "created_at, updated_at) VALUES (1, 'k', 'not json', 't', 't', 't')")

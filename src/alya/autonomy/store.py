@@ -240,7 +240,9 @@ class AutonomyStore:
                WHERE c.kind = 'channel' ORDER BY c.title""")
         return [(int(r[0]), r[1], bool(r[2]), int(r[3])) for r in rows]
 
-    async def channels_for_digest(self, older_than: datetime) -> list[tuple[int, str, datetime | None]]:
+    async def channels_for_digest(
+        self, older_than: datetime
+    ) -> list[tuple[int, str, datetime | None]]:
         rows = await self._db.fetchall(
             """SELECT c.chat_id, COALESCE(c.title, ''), s.last_digest_at
                FROM chats c LEFT JOIN channel_state s ON s.chat_id = c.chat_id

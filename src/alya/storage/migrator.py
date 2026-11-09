@@ -90,7 +90,9 @@ def pending(conn: sqlite3.Connection, migrations: list[Migration]) -> list[Migra
     return result
 
 
-def apply_migrations(conn: sqlite3.Connection, migrations: list[Migration] | None = None) -> list[int]:
+def apply_migrations(
+    conn: sqlite3.Connection, migrations: list[Migration] | None = None
+) -> list[int]:
     """Применить неприменённые миграции. Идемпотентно. Возвращает номера применённых."""
     items = load_migrations() if migrations is None else migrations
     done: list[int] = []

@@ -145,7 +145,9 @@ class FakeRequester:
         asyncio.get_running_loop().call_later(
             0.01, lambda: asyncio.ensure_future(ad.handle_update(update)))
 
-    async def request(self, query: dict[str, Any], *, timeout: float | None = None) -> dict[str, Any]:
+    async def request(
+        self, query: dict[str, Any], *, timeout: float | None = None
+    ) -> dict[str, Any]:
         self.requests.append(query)
         kind = query["@type"]
         if kind == "getChat":

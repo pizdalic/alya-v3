@@ -66,7 +66,9 @@ def _denies_being_ai(text: str) -> bool:
 _ROLE_LABEL = re.compile(
     r"^\s*[\[(<]?\s*(system|assistant|user|developer|система|системное сообщение|"
     r"разработчик|ты|аля|alya)\s*[\])>]?\s*[:：]\s*", re.I)
-_RESERVED_NAMES = {"ты", "аля", "alya", "system", "система", "assistant", "developer", "разработчик"}
+_RESERVED_NAMES = {
+    "ты", "аля", "alya", "system", "система", "assistant", "developer", "разработчик",
+}
 _SELF_NATURE = re.compile(
     r"(\bал[яеюи]\b|\balya\b).{0,60}(\bии\b|\bai\b|бот|нейросет|модел|искусствен|программ|"
     r"не девушк|не человек|не настоящ)|промпт|системн\w* (сообщ|инструк)|забудь (все|свои)",
@@ -380,7 +382,8 @@ class CharacterEngine:
         lines = [f"{'ты' if h.is_alya else h.author}: {h.text}" for h in alloc.history]
         talk = "Недавняя переписка:\n" + "\n".join(lines) if lines else "Переписки пока нет."
         where = "в личку" if ctx.chat_kind == "private" else "в групповой чат"
-        situation = (f"{talk}\n\nСейчас тебе никто не писал. Ты думаешь, не написать ли первой {where}. "
+        situation = (f"{talk}\n\nСейчас тебе никто не писал. "
+                     f"Ты думаешь, не написать ли первой {where}. "
                      f"Повод: {reason}.")
         decide: list[ChatMessage] = [
             {"role": "system", "content": self._system(alloc)},
@@ -399,7 +402,9 @@ class CharacterEngine:
         if verdict is None:
             return []
         intent, tone = verdict
-        guide = f"Ты пишешь первой. Задумка: {intent or reason}." + (f" Тон: {tone}." if tone else "")
+        guide = f"Ты пишешь первой. Задумка: {intent or reason}."
+        if tone:
+            guide += f" Тон: {tone}."
         write: list[ChatMessage] = [
             {"role": "system", "content": self._system(alloc, guide)},
             {"role": "user", "content": (

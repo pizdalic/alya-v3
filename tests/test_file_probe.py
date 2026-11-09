@@ -12,7 +12,9 @@ from tests.test_tdlib import ME, FakeRequester
 
 
 class RejectAll(FakeRequester):
-    async def request(self, query: dict[str, Any], *, timeout: float | None = None) -> dict[str, Any]:
+    async def request(
+        self, query: dict[str, Any], *, timeout: float | None = None
+    ) -> dict[str, Any]:
         if query["@type"] == "sendMessage":
             self.requests.append(query)
             raise TdError(400, "InputFile is not specified")

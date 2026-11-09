@@ -48,7 +48,8 @@ class PipelineTests(DbTestCase):
                         msg(OWNER, OWNER, "ты тут?", at=self.at(), kind="private"))
         self.assertEqual(len(self.engine.turns), 1)  # debounce склеил
         self.assertEqual(self.engine.turns[0].text, "привет\nты тут?")
-        self.assertEqual([(t, r) for _, t, r in self.tr.sent], [("привет)", None), ("как ты", None)])
+        self.assertEqual([(t, r) for _, t, r in self.tr.sent],
+                         [("привет)", None), ("как ты", None)])
         rows = await self.rows(OWNER)
         self.assertEqual([r[1] for r in rows], [0, 0, 1, 1])
         self.assertTrue(all(r[2] for r in rows[:2]))

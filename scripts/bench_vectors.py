@@ -70,7 +70,8 @@ def main() -> None:
         conn = build(n, args.dim, rng)
         line = f"N={n:>6}: numpy {bench(conn, NumpyBackend(), args.dim, rng, args.runs):8.1f} мс"
         if load_sqlite_vec(conn):
-            line += f" | sqlite-vec {bench(conn, SqliteVecBackend(), args.dim, rng, args.runs):8.1f} мс"
+            vec_ms = bench(conn, SqliteVecBackend(), args.dim, rng, args.runs)
+            line += f" | sqlite-vec {vec_ms:8.1f} мс"
         print(line, flush=True)
         conn.close()
 
