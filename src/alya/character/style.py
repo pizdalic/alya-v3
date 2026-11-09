@@ -1,5 +1,5 @@
 """Пост-обработка ответа под манеру Али: маленькая буква, без точки, разбивка на сообщения,
-редкие опечатки и эмодзи по бюджету «не больше N на 100 сообщений» (окно хранится в БД)."""
+редкие опечатки, эмодзи и скобочки «)» по бюджету «не больше N на 100 сообщений» (окно хранится в БД)."""
 
 from __future__ import annotations
 
@@ -74,6 +74,34 @@ def strip_emoji(text: str) -> str:
     return re.sub(r"\s{2,}", " ", _EMOJI.sub("", text)).strip()
 
 
+def count_smiley(text: str) -> int:
+    """Скобочки-смайлики: «)» без парной «(»."""
+    depth = n = 0
+    for ch in text:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            if depth:
+                depth -= 1
+            else:
+                n += 1
+    return n
+
+
+def strip_smiley(text: str) -> str:
+    out: list[str] = []
+    depth = 0
+    for ch in text:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            if not depth:
+                continue
+            depth -= 1
+        out.append(ch)
+    return re.sub(r"\s{2,}", " ", "".join(out)).strip()
+
+
 class Stylizer:
     def __init__(self, db: Database, style: StyleProfile, *, rng: random.Random | None = None,
                  clock: Clock = utcnow) -> None:
@@ -98,6 +126,10 @@ class Stylizer:
                 if count_emoji(msg) and emojis >= st.emoji_per_100:
                     msg = strip_emoji(msg) or msg
                 has_emoji = 1 if count_emoji(msg) else 0
+                brackets = sum(r[2] for r in recent[-WINDOW:] if len(r) > 2)
+                if count_smiley(msg) and brackets >= st.bracket_per_100:
+                    msg = strip_smiley(msg) or msg
+                has_bracket = 1 if count_smiley(msg) else 0
                 if st.lowercase:
                     msg = _lower_first(msg)
                 if st.drop_final_period:
@@ -110,7 +142,7 @@ class Stylizer:
                     msg = changed
                 if msg:
                     out.append(msg)
-                    recent.append([typo, has_emoji])
+                    recent.append([typo, has_emoji, has_bracket])
             recent = recent[-WINDOW:]
             conn.execute(
                 "INSERT INTO style_window (chat_id, recent, updated_at) VALUES (?, ?, ?) "

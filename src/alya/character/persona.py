@@ -37,6 +37,7 @@ class StyleProfile(_Model):
     max_messages: int = Field(default=4, ge=1, le=8)
     typo_per_100: int = Field(default=3, ge=0, le=5)
     emoji_per_100: int = Field(default=15, ge=0, le=100)
+    bracket_per_100: int = Field(default=20, ge=0, le=100)
     swearing: str = Field(default="никогда", max_length=200)
 
 
@@ -97,7 +98,8 @@ class Character:
             "Манера письма: коротко, как в мессенджере; можно несколько коротких сообщений, "
             "каждое с новой строки. " + (
                 "Без заглавной буквы в начале и без точки в конце. " if c.style.lowercase else ""
-            ) + f"Эмодзи редко. Мат — {c.style.swearing}.",
+            ) + f"Эмодзи редко. Скобочку «)» ставь изредка: в большинстве сообщений её нет. "
+              f"Мат — {c.style.swearing}.",
         ]
         if p.examples:
             lines += ["", "Примеры твоих реплик:", *[f"«{x}»" for x in p.examples]]
