@@ -12,6 +12,7 @@ from alya.autonomy.store import AutonomyStore
 from alya.core.config import Settings
 from alya.llm.chat import ChatModel
 from alya.storage.db import Database
+from alya.telegram.botapi import BotApi, BotApiAdapter
 from alya.telegram.addressee import AddresseeDetector, LLMAddresseeClassifier
 from alya.telegram.commands import OwnerCommands
 from alya.telegram.media_flow import MediaKit
@@ -49,6 +50,7 @@ class TelegramService:
         self._loader = loader
         self._media = media
         self._client: TdClient | None = None
+        self._bot: BotApiAdapter | None = None
         self._sender: Sender | None = None
         self._pipeline: Pipeline | None = None
         self.ready = False
@@ -82,11 +84,24 @@ class TelegramService:
 
     async def start(self) -> None:
         tg = self._settings.telegram
-        client = TdClient(self._loader())
-        self._client = client
-        me = await authorize(client, self._settings, prompt=None)
-        me_id = int(me["id"])
-        username = username_of(me)
+        adapter: Any
+        client: TdClient | None = None
+        if tg.mode == "bot":
+            if tg.bot_token is None:
+                raise RuntimeError("telegram.bot_token не задан (ALYA_TELEGRAM__BOT_TOKEN)")
+            api = BotApi(tg.bot_token.get_secret_value())
+            me = await api.call("getMe")
+            me_id = int(me["id"])
+            username = me.get("username") or None
+            adapter = self._bot = BotApiAdapter(api, me_id=me_id)
+            log.warning("режим bot: запасной транспорт, часть функций недоступна")
+        else:
+            client = TdClient(self._loader())
+            self._client = client
+            me = await authorize(client, self._settings, prompt=None)
+            me_id = int(me["id"])
+            username = username_of(me)
+            adapter = TdlibAdapter(client, me_id=me_id)
         classifier = (LLMAddresseeClassifier(self._classifier_chat)
                       if tg.gray_zone_llm and self._classifier_chat is not None else None)
         detector = AddresseeDetector(me_id, username, tg.alya_names,
@@ -94,7 +109,6 @@ class TelegramService:
         outbox = OutboxStore(self._db)
         au = self._settings.autonomy
         autonomy = AutonomyStore(self._db) if au.enabled else None
-        adapter = TdlibAdapter(client, me_id=me_id)
         if self._media is not None:
             self._media.commands = OwnerCommands(
                 adapter, owner_id=self._settings.app.owner_user_id,
@@ -126,7 +140,10 @@ class TelegramService:
         pipeline.set_wake(sender.wake)
         adapter.bind(on_message=pipeline.on_message, on_edit=pipeline.on_edit,
                      on_delete=pipeline.on_delete)
-        client.on_update(adapter.handle_update)
+        if client is not None:
+            client.on_update(adapter.handle_update)
+        else:
+            await adapter.start()
         await sender.start()
         if autonomy is not None and hasattr(self._engine, "initiate"):
             core = getattr(getattr(self._engine, "character", None), "core", None)
@@ -154,5 +171,7 @@ class TelegramService:
             await self._sender.stop()
         if self._pipeline is not None:
             await self._pipeline.close()
+        if self._bot is not None:
+            await self._bot.close()
         if self._client is not None:
             await self._client.close()
