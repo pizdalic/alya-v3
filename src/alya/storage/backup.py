@@ -187,6 +187,8 @@ def export_user(conn: sqlite3.Connection, user_id: int) -> dict[str, Any]:
 class BackupScheduler:
     """Компонент Lifecycle: бэкап раз в interval_h часов (первый — через минуту после старта)."""
 
+    name = "backup"
+
     def __init__(self, db_path: Path, dest: Path, *, interval_h: float, keep: int,
                  retain_days: int, first_delay_s: float = 60.0) -> None:
         self._db_path, self._dest = db_path, dest

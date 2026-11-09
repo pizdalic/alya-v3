@@ -107,6 +107,16 @@ class StorageSection(_Section):
     busy_timeout_ms: int = Field(default=5000, ge=0, le=60000)
 
 
+class BackupSection(_Section):
+    """Автоматические бэкапы (ADR-0010): хранятся retain_days дней, не больше keep штук."""
+
+    enabled: bool = True
+    dir: Path = Path("runtime/backups")
+    interval_hours: float = Field(default=24.0, ge=1, le=168)
+    keep: int = Field(default=7, ge=1, le=100)
+    retain_days: int = Field(default=7, ge=1, le=90)
+
+
 class HealthSection(_Section):
     enabled: bool = True
     host: str = "127.0.0.1"
@@ -280,6 +290,7 @@ class Settings(_Section):
     autonomy: AutonomySection = Field(default_factory=AutonomySection)
     plugins: PluginsSection = Field(default_factory=PluginsSection)
     moderation: ModerationSection = Field(default_factory=ModerationSection)
+    backup: BackupSection = Field(default_factory=BackupSection)
 
     def problems_for_run(self) -> list[str]:
         """Чего не хватает для полноценной работы (формально конфиг при этом валиден)."""

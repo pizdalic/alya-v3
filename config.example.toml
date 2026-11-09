@@ -154,6 +154,14 @@ timeout_s = 10
 [plugins.grants]               # загружается только то, что перечислено здесь
 # dice = ["reply", "storage"]  # разрешения: reply, recall, storage
 
+[backup]
+# Автоматические бэкапы БД (ADR-0010). Вручную: alya backup / alya restore --yes
+enabled = true
+dir = "runtime/backups"
+interval_hours = 24
+keep = 7
+retain_days = 7
+
 [moderation]                   # только dry_run: пишет в audit_log, что сделала бы; никого не банит
 enabled = false
 flood_messages = 8             # столько сообщений от одного человека...
