@@ -145,3 +145,26 @@ group_max_per_day = 4
 channel_digest_hours = 12
 channel_max_facts = 3
 jitter = 0.08
+
+[plugins]                      # Phase 8: свои команды в личке (см. examples/plugins/dice.py)
+enabled = false
+dir = "plugins"                # файлы <name>.py с MANIFEST и async def handle
+timeout_s = 10
+
+[plugins.grants]               # загружается только то, что перечислено здесь
+# dice = ["reply", "storage"]  # разрешения: reply, recall, storage
+
+[backup]
+# Автоматические бэкапы БД (ADR-0010). Вручную: alya backup / alya restore --yes
+enabled = true
+dir = "runtime/backups"
+interval_hours = 24
+keep = 7
+retain_days = 7
+
+[moderation]                   # только dry_run: пишет в audit_log, что сделала бы; никого не банит
+enabled = false
+flood_messages = 8             # столько сообщений от одного человека...
+flood_window_s = 30            # ...за столько секунд = флуд
+max_links = 3
+banned_words = []

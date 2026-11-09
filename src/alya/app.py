@@ -12,6 +12,7 @@ from alya.core.config import Settings
 from alya.core.container import Container
 from alya.core.events import Event, EventBus
 from alya.core.lifecycle import Lifecycle
+from alya.storage.backup import BackupScheduler
 from alya.character.allocator import ContextAllocator
 from alya.character.emotion import EmotionStore
 from alya.character.engine import CharacterEngine
@@ -338,6 +339,11 @@ def build_app(settings: Settings) -> App:
     lifecycle = Lifecycle()
     lifecycle.add(EventBusComponent(container.resolve(EventBus)))
     lifecycle.add(StorageComponent(db))
+    if settings.backup.enabled:
+        bk = settings.backup
+        lifecycle.add(BackupScheduler(settings.storage.db_path, bk.dir,
+                                      interval_h=bk.interval_hours, keep=bk.keep,
+                                      retain_days=bk.retain_days))
     lifecycle.add(MemoryMaintenance(memory_service, indexer,
                                     settings.memory.maintenance_interval_s))
     if settings.dream.enabled:

@@ -1,4 +1,4 @@
-"""Командная строка: alya check-config | migrate | run | login | chat | persona | dream | healthcheck | version."""
+"""Командная строка: alya check-config | migrate | run | login | backup | backups | restore | export-user | chat | persona | dream | healthcheck | version."""
 
 from __future__ import annotations
 
@@ -210,6 +210,69 @@ def cmd_healthcheck(args: argparse.Namespace) -> int:
     return EXIT_PROBLEMS
 
 
+def cmd_backup(args: argparse.Namespace) -> int:
+    from alya.storage.backup import create_backup
+    settings = _load(args)
+    bk = settings.backup
+    path = create_backup(settings.storage.db_path, bk.dir, keep=bk.keep,
+                         retain_days=bk.retain_days)
+    print(f"бэкап: {path}")
+    return EXIT_OK
+
+
+def cmd_backups(args: argparse.Namespace) -> int:
+    from alya.storage.backup import list_backups
+    settings = _load(args)
+    found = list_backups(settings.backup.dir)
+    if not found:
+        print("бэкапов нет")
+    for p in found:
+        print(f"{p}  {p.stat().st_size // 1024} КБ")
+    return EXIT_OK
+
+
+def cmd_restore(args: argparse.Namespace) -> int:
+    from alya.storage.backup import list_backups, restore_backup
+    settings = _load(args)
+    found = list_backups(settings.backup.dir)
+    if args.list:
+        for p in found:
+            print(p)
+        return EXIT_OK
+    src = Path(args.file) if args.file else (found[-1] if found else None)
+    if src is None:
+        print("бэкапов нет", file=sys.stderr)
+        return EXIT_PROBLEMS
+    if not args.yes:
+        print(f"Будет восстановлено из {src}. Сначала остановите Алю, потом "
+              f"повторите с --yes.", file=sys.stderr)
+        return EXIT_PROBLEMS
+    rep = restore_backup(src, settings.storage.db_path)
+    print(f"восстановлено из {rep.restored_from}")
+    if rep.safety_copy is not None:
+        print(f"прежняя БД сохранена: {rep.safety_copy}")
+    print(f"журнал удалений применён заново: {rep.tombstones} записей, "
+          f"удалено строк: {rep.removed}")
+    return EXIT_OK
+
+
+def cmd_export_user(args: argparse.Namespace) -> int:
+    import sqlite3
+
+    from alya.storage.backup import export_user
+    settings = _load(args)
+    conn = sqlite3.connect(f"file:{settings.storage.db_path}?mode=ro", uri=True)
+    try:
+        data = export_user(conn, args.user_id)
+    finally:
+        conn.close()
+    out = Path(args.out or f"export-{args.user_id}.json")
+    out.write_text(json.dumps(data, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    out.chmod(0o600)
+    print(f"{out}: записей {len(data['memories'])}, сообщений {len(data['messages'])}")
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="alya", description="Аля — Telegram-компаньон")
     parser.add_argument("--config", help="путь к config.toml (или ALYA_CONFIG)")
@@ -221,6 +284,17 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("chat", help="поговорить с Алей в терминале").set_defaults(fn=cmd_chat)
     sub.add_parser("persona", help="показать загруженный характер").set_defaults(fn=cmd_persona)
     sub.add_parser("dream", help="один прогон консолидации памяти").set_defaults(fn=cmd_dream)
+    sub.add_parser("backup", help="создать резервную копию БД").set_defaults(fn=cmd_backup)
+    sub.add_parser("backups", help="список бэкапов").set_defaults(fn=cmd_backups)
+    rs = sub.add_parser("restore", help="восстановить БД из бэкапа (Аля остановлена)")
+    rs.add_argument("file", nargs="?", help="файл бэкапа; по умолчанию — самый свежий")
+    rs.add_argument("--list", action="store_true", help="показать бэкапы")
+    rs.add_argument("--yes", action="store_true", help="подтвердить восстановление")
+    rs.set_defaults(fn=cmd_restore)
+    ex = sub.add_parser("export-user", help="выгрузить данные человека в JSON")
+    ex.add_argument("user_id", type=int)
+    ex.add_argument("-o", "--out", help="файл (по умолчанию export-<id>.json)")
+    ex.set_defaults(fn=cmd_export_user)
     hc = sub.add_parser("healthcheck", help="опросить /health")
     hc.add_argument("--url")
     hc.add_argument("--timeout", type=float, default=5.0)

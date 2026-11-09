@@ -107,6 +107,16 @@ class StorageSection(_Section):
     busy_timeout_ms: int = Field(default=5000, ge=0, le=60000)
 
 
+class BackupSection(_Section):
+    """Автоматические бэкапы (ADR-0010): хранятся retain_days дней, не больше keep штук."""
+
+    enabled: bool = True
+    dir: Path = Path("runtime/backups")
+    interval_hours: float = Field(default=24.0, ge=1, le=168)
+    keep: int = Field(default=7, ge=1, le=100)
+    retain_days: int = Field(default=7, ge=1, le=90)
+
+
 class HealthSection(_Section):
     enabled: bool = True
     host: str = "127.0.0.1"
@@ -236,6 +246,36 @@ class AutonomySection(_Section):
     jitter: float = Field(default=0.08, ge=0, le=0.5)
 
 
+class ModerationSection(_Section):
+    """Модерация в группах: только запись в audit_log, без действий (T11)."""
+
+    enabled: bool = False
+    dry_run: Literal[True] = True  # настоящих банов и удалений нет и не будет без ADR
+    flood_messages: int = Field(default=8, ge=2, le=100)
+    flood_window_s: int = Field(default=30, ge=5, le=3600)
+    max_links: int = Field(default=3, ge=0, le=50)
+    banned_words: list[str] = Field(default_factory=list)
+
+
+class PluginsSection(_Section):
+    """Плагины (Phase 8): загружаются только перечисленные в grants."""
+
+    enabled: bool = False
+    dir: Path = Path("plugins")
+    timeout_s: float = Field(default=10.0, gt=0, le=120)
+    grants: dict[str, list[str]] = Field(default_factory=dict)
+
+    @field_validator("grants")
+    @classmethod
+    def _known_permissions(cls, value: dict[str, list[str]]) -> dict[str, list[str]]:
+        known = {"reply", "recall", "storage"}
+        for name, perms in value.items():
+            bad = sorted(set(perms) - known)
+            if bad:
+                raise ValueError(f"plugins.grants.{name}: неизвестные разрешения {bad}")
+        return value
+
+
 class Settings(_Section):
     app: AppSection = Field(default_factory=AppSection)
     telegram: TelegramSection = Field(default_factory=TelegramSection)
@@ -248,6 +288,9 @@ class Settings(_Section):
     dream: DreamSection = Field(default_factory=DreamSection)
     media: MediaSection = Field(default_factory=MediaSection)
     autonomy: AutonomySection = Field(default_factory=AutonomySection)
+    plugins: PluginsSection = Field(default_factory=PluginsSection)
+    moderation: ModerationSection = Field(default_factory=ModerationSection)
+    backup: BackupSection = Field(default_factory=BackupSection)
 
     def problems_for_run(self) -> list[str]:
         """Чего не хватает для полноценной работы (формально конфиг при этом валиден)."""

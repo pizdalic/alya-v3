@@ -35,7 +35,8 @@ HELP = ("команды:\n"
         "/media — что включено и сколько потрачено за сутки\n"
         "/channels — каналы, которые я читаю · /channels off|on <id>\n"
         "/reminders — мои напоминания тебе · /reminders cancel <id>\n"
-        "/pause · /resume — не писать тебе первой / снова можно")
+        "/pause · /resume — не писать тебе первой / снова можно\n"
+        "/privacy — команды приватности (/mydata, /export, /forget, /forget_user, /forget_chat)")
 
 
 class AccountTransport(Protocol):
@@ -48,6 +49,10 @@ class AccountTransport(Protocol):
     async def sticker_set(self, name: str) -> list[tuple[str, str]]: ...
 
     async def download(self, file_id: int, max_bytes: int) -> bytes: ...
+
+
+COMMAND_NAMES = frozenset({"/join", "/bio", "/avatar", "/stickers", "/media", "/channels",
+                           "/reminders", "/help", "/pause", "/resume", "/start"})
 
 
 class OwnerCommands:

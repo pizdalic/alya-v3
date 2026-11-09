@@ -9,7 +9,7 @@ from collections import deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from alya.autonomy.store import AutonomyStore
 from alya.character.allocator import HistoryLine
@@ -23,6 +23,11 @@ from alya.telegram.debounce import Debouncer
 from alya.telegram.media_flow import MediaKit, outgoing, sent_text
 from alya.telegram.models import IncomingMessage, MessageEdited, MessagesDeleted
 from alya.telegram.outbox import OutboxItem, OutboxStore
+from alya.telegram.privacy import PrivacyCommands
+
+if TYPE_CHECKING:
+    from alya.plugins.registry import PluginHost
+    from alya.telegram.moderation import Moderator
 from alya.telegram.sanitize import clean_outgoing
 from alya.telegram.transport import Transport
 
@@ -57,7 +62,13 @@ class Pipeline:
                  outbox: OutboxStore, *, config: PipelineConfig,
                  transport: Transport | None = None, wake: Callable[[], None] | None = None,
                  clock: Clock = utcnow, media: MediaKit | None = None,
-                 autonomy: AutonomyStore | None = None) -> None:
+                 autonomy: AutonomyStore | None = None,
+                 privacy: PrivacyCommands | None = None,
+                 plugins: PluginHost | None = None,
+                 moderation: Moderator | None = None) -> None:
+        self._moderation = moderation
+        self._privacy = privacy
+        self._plugins = plugins
         self._db = db
         self._engine = engine
         self._detector = detector
@@ -147,11 +158,20 @@ class Pipeline:
             return
         if msg.sender_id is None or msg.sender_id == self._cfg.me_id:
             return
+        if self._privacy is not None and self._privacy.accepts(msg):
+            # до записи и до политики незнакомцев: право забыть себя есть у всех
+            await self._privacy_reply(msg)
+            return
         if await self._command(msg):
             return
         if not await self._allowed(msg):
             return
+        if self._plugins is not None and self._plugins.accepts(msg):
+            await self._system_replies(msg, await self._plugins.handle(msg), "plug")
+            return
         await self._store(msg, sender_id=msg.sender_id)
+        if self._moderation is not None and msg.is_group:
+            await self._moderation.check(msg)  # dry_run: только audit_log
         if await self._pause_command(msg):
             return
         self._debouncer.add((msg.chat_id, msg.sender_id), msg)
@@ -175,6 +195,19 @@ class Pipeline:
         if self._wake is not None:
             self._wake()
         return True
+
+    async def _privacy_reply(self, msg: IncomingMessage) -> None:
+        assert self._privacy is not None
+        await self._system_replies(msg, await self._privacy.handle(msg), "priv")
+
+    async def _system_replies(self, msg: IncomingMessage, answers: list[str], tag: str) -> None:
+        """Служебные ответы: минуя модель, не пишутся в историю."""
+        for i, text in enumerate(answers):
+            await self._outbox.enqueue(msg.chat_id, f"{msg.chat_id}:{msg.message_id}:{tag}:{i}", {
+                "text": text, "reply_to": None, "typing_s": 0, "addressees": [],
+                "system": True})
+        if answers and self._wake is not None:
+            self._wake()
 
     async def _command(self, msg: IncomingMessage) -> bool:
         commands = self._media.commands if self._media is not None else None
