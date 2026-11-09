@@ -42,13 +42,16 @@ class ProcessorLimits:
     max_voice_bytes: int = 20 * 1024 * 1024
 
 
+_DEFAULT_LIMITS = ProcessorLimits()
+
+
 def _with_caption(label: str, caption: str) -> str:
     return f"{label} {caption}".strip() if caption else label
 
 
 class MediaProcessor:
     def __init__(self, limiter: UsageLimiter, *, vision: Vision | None = None,
-                 stt: SpeechToText | None = None, limits: ProcessorLimits = ProcessorLimits(),
+                 stt: SpeechToText | None = None, limits: ProcessorLimits = _DEFAULT_LIMITS,
                  has_ffmpeg: Callable[[], bool] = lambda: audio.ffmpeg_path() is not None) -> None:
         self._limiter = limiter
         self._vision = vision

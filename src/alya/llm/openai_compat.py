@@ -106,7 +106,9 @@ class OpenAICompatibleEmbedder:
             detail = _error_message(exc.read())
             msg = f"HTTP {exc.code} от провайдера эмбеддингов" + (f": {detail}" if detail else "")
             if exc.code in RETRY_STATUSES:
-                raise _Retryable(msg, exc.code, _retry_after(exc.headers.get("Retry-After")))
+                raise _Retryable(
+                    msg, exc.code, _retry_after(exc.headers.get("Retry-After"))
+                ) from None
             raise LLMHTTPError(msg, exc.code) from None
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             raise _Retryable(f"сетевая ошибка: {type(exc).__name__}", None, None) from None

@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 from alya.character.allocator import Allocation, ContextAllocator, HistoryLine
 from alya.character.emotion import VAD, EmotionStore, describe
 from alya.character.persona import Character
-from alya.character.planner import PLAN_SCHEMA, Plan, _FENCE, parse_plan
+from alya.character.planner import _FENCE, PLAN_SCHEMA, Plan, parse_plan
 from alya.character.relationships import Relationship, RelationshipStore
 from alya.character.style import Stylizer
 from alya.core.timeutil import Clock, utcnow

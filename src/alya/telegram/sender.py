@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from pathlib import Path
 from collections.abc import Awaitable, Callable
-from typing import Any
 from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any
 
 from alya.core.timeutil import Clock, utcnow
 from alya.telegram.outbox import OutboxItem, OutboxStore

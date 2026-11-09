@@ -8,25 +8,31 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, cast
 
-from alya.core.config import Settings
-from alya.core.container import Container
-from alya.core.events import Event, EventBus
-from alya.core.lifecycle import Lifecycle
-from alya.storage.backup import BackupScheduler
 from alya.character.allocator import ContextAllocator
 from alya.character.emotion import EmotionStore
 from alya.character.engine import CharacterEngine
 from alya.character.persona import Character, load_character
 from alya.character.relationships import RelationshipStore
 from alya.character.style import Stylizer
+from alya.core.config import Settings
+from alya.core.container import Container
+from alya.core.events import Event, EventBus
+from alya.core.lifecycle import Lifecycle
 from alya.dream.engine import DreamConfig, DreamEngine
 from alya.dream.judge import LLMJudge
 from alya.dream.scheduler import DreamScheduler
 from alya.llm.chat import ChatModel, OpenAICompatibleChat
 from alya.llm.openai_compat import OpenAICompatibleEmbedder
 from alya.media import audio
-from alya.media.clients import (ChatSTT, ImageClient, SpeechTTS, TranscriptionsSTT,
-                                VisionClient, WebSearchClient, http_client)
+from alya.media.clients import (
+    ChatSTT,
+    ImageClient,
+    SpeechTTS,
+    TranscriptionsSTT,
+    VisionClient,
+    WebSearchClient,
+    http_client,
+)
 from alya.media.limits import KINDS, UsageLimiter
 from alya.media.processor import MediaProcessor, ProcessorLimits
 from alya.media.stickers import StickerStore
@@ -38,6 +44,7 @@ from alya.memory.service import MemoryService
 from alya.memory.vectors import NumpyBackend, SqliteVecBackend, VectorBackend, load_sqlite_vec
 from alya.observability.health import Check as HealthCheck
 from alya.observability.health import CheckResult, HealthRegistry, HealthServer
+from alya.storage.backup import BackupScheduler
 from alya.storage.db import Database
 from alya.storage.migrator import apply_migrations, load_migrations, pending
 from alya.telegram.media_flow import MediaKit
