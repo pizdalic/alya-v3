@@ -50,9 +50,9 @@ flowchart LR
 | dream | консолидация, дедупликация, противоречия, confidence/provenance | memory, llm |
 | llm | только облачные API: OpenAI / OpenRouter / Anthropic / Gemini / любой OpenAI-compatible; capabilities, ретраи, бюджет токенов. Локальные модели не разворачиваются (решение пользователя) | core |
 | multimodal | vision, STT, TTS, стикеры/реакции — всё отключаемо | llm |
-| moderation | анализ нарушений в dry_run, audit log, действия только после подтверждения | security, storage |
+| moderation | только dry_run: флуд, ссылки, запрещённые слова → audit_log; действий нет (`telegram/moderation.py`) | storage |
 | observability | структурные логи без PII, метрики, healthcheck, диагностика | core |
-| plugins | плагины с декларацией разрешений | core, security |
+| plugins | плагины из `plugins.grants`; права = заявленные ∩ выданные; тайм-аут, audit log | core, memory |
 | api | локальный admin/health HTTP API (минимальный) | core |
 
 ## 3. Структура каталогов
@@ -62,14 +62,13 @@ alya/
 ├── src/alya/
 │   ├── core/          # container, event bus, lifecycle, config, errors
 │   ├── storage/       # db, migrator, migrations/*.sql, repositories, outbox, backup
-│   ├── telegram/      # tdlib/ (основной), bot_api/ (резервный), queue, debounce, sender
+│   ├── telegram/      # tdlib/ (основной), botapi.py (резервный), addressee, debounce, outbox, sender, pipeline, moderation, privacy
 │   ├── security/      # isolation, rate_limit, circuit_breaker, sanitizer, privacy
 │   ├── memory/        # working, short_term, long_term, search (fts, vector, rrf), forget, mirror
 │   ├── character/     # persona, emotion (VAD, decay, diary), relationships, style, allocator, planner, engine
 │   ├── dream/         # consolidation, dedup, contradictions, scheduler
 │   ├── llm/           # base (capabilities), providers/, embeddings, tokenizer, budget
 │   ├── multimodal/    # vision, stt, tts, stickers
-│   ├── moderation/    # rules, dry_run, audit
 │   ├── observability/ # logging, metrics, health, diagnostics
 │   ├── plugins/       # registry, permissions
 │   ├── api/           # admin/health http
@@ -84,6 +83,8 @@ alya/
 ├── .env.example
 └── pyproject.toml
 ```
+
+На релизе часть модулей объединена: мультимодальность — `media/`, проактивность — `autonomy/`, модерация, privacy-команды и sanitizer — в `telegram/`, health — в `observability/`; отдельных каталогов `security/`, `multimodal/`, `api/` и `setup/` нет. Бэкапы — `storage/backup.py`, эксплуатация — [OPERATIONS.md](OPERATIONS.md).
 
 Пакет лежит в `src/alya/` (src-layout), чтобы тесты не импортировали код из рабочей директории.
 

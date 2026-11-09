@@ -4,7 +4,7 @@ Telegram-компаньон, живущий в собственном аккау
 
 ## Статус
 
-**Phase 8 — укрепление и релиз.** Privacy-команды для любого собеседника (`/privacy`, `/mydata`, `/export`, `/forget`, `/forget_me`), плагины с разрешениями (`[plugins]`, пример — `examples/plugins/dice.py`). Phase 7 — автономия. Аля иногда пишет первой в личку (не ночью, не чаще раза в сутки, `/pause` отключает), сама вступает в групповой разговор о своих интересах, напоминает о том, о чём попросили, и читает каналы, на которые подписана. Phase 6 — мультимодальность. Готовы основа (конфигурация, DI, Event Bus, SQLite с миграциями, логирование без секретов, healthcheck, Docker, CI), память (изоляция личка / чат / персонаж, уровни с TTL, поиск FTS5 + эмбеддинги + RRF, Forget API, Markdown-зеркало) и персонаж: Аля, 19 лет, студентка; два характера на выбор (`shy` — стеснительная и мягкая, `tsundere` — цундере), настроение VAD с плавным затуханием и дневником, отношения к каждому собеседнику, двухэтапная генерация (план в JSON → ответ), стиль (строчные, короткие сообщения, редкие эмодзи и опечатки — не больше 5 на 100 сообщений), бюджет контекста. Telegram: userbot на TDLib — Аля склеивает быстрые сообщения, понимает, когда в группе отвечают ей без реплая, и не лезет в чужие разговоры; отправка через очередь с учётом FloodWait. Дальше — см. [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
+**Phase 8 — укрепление и релиз (готово).** Бэкапы с ротацией и восстановлением без воскрешения забытого, модерация в режиме dry_run, запасной режим через Bot API, аудит безопасности и нагрузочные тесты; установка и эксплуатация — [docs/OPERATIONS.md](docs/OPERATIONS.md). Privacy-команды для любого собеседника (`/privacy`, `/mydata`, `/export`, `/forget`, `/forget_me`), плагины с разрешениями (`[plugins]`, пример — `examples/plugins/dice.py`). Phase 7 — автономия. Аля иногда пишет первой в личку (не ночью, не чаще раза в сутки, `/pause` отключает), сама вступает в групповой разговор о своих интересах, напоминает о том, о чём попросили, и читает каналы, на которые подписана. Phase 6 — мультимодальность. Готовы основа (конфигурация, DI, Event Bus, SQLite с миграциями, логирование без секретов, healthcheck, Docker, CI), память (изоляция личка / чат / персонаж, уровни с TTL, поиск FTS5 + эмбеддинги + RRF, Forget API, Markdown-зеркало) и персонаж: Аля, 19 лет, студентка; два характера на выбор (`shy` — стеснительная и мягкая, `tsundere` — цундере), настроение VAD с плавным затуханием и дневником, отношения к каждому собеседнику, двухэтапная генерация (план в JSON → ответ), стиль (строчные, короткие сообщения, редкие эмодзи и опечатки — не больше 5 на 100 сообщений), бюджет контекста. Telegram: userbot на TDLib — Аля склеивает быстрые сообщения, понимает, когда в группе отвечают ей без реплая, и не лезет в чужие разговоры; отправка через очередь с учётом FloodWait. Дальше — см. [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
 
 ## Быстрый старт (Ubuntu, Docker)
 
@@ -28,7 +28,7 @@ alya migrate
 pytest -q && ruff check . && mypy
 ```
 
-Команды: `alya check-config`, `alya migrate`, `alya run`, `alya chat`, `alya persona`, `alya dream`, `alya healthcheck`, `alya version`.
+Команды: `alya check-config`, `alya migrate`, `alya run`, `alya chat`, `alya persona`, `alya dream`, `alya login`, `alya backup`, `alya backups`, `alya restore <файл> --yes`, `alya export-user <id>`, `alya healthcheck`, `alya version`.
 
 `alya chat` — поговорить с Алей прямо в терминале (как владелец, в личке), без Telegram. Нужны `llm.api_key` и `[llm.roles.chat]`; `[llm.roles.utility]` (если задана) используется для планирования ответа.
 
@@ -62,6 +62,7 @@ pytest -q && ruff check . && mypy
 - [docs/SECURITY.md](docs/SECURITY.md) — модель угроз
 - [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) — зависимости
 - [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) — план
+- [docs/OPERATIONS.md](docs/OPERATIONS.md) — установка, бэкапы, обновление и откат, режим бота
 
 ## Лицензия
 
