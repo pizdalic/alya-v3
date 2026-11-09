@@ -224,6 +224,18 @@ Docker, non-root пользователь, read-only rootfs где возмож�
 
 Решение «вступить в разговор самой» в группе не должно стоить вызова API на каждое сообщение: сначала бесплатная проверка (ключевые слова интересов, активность чата, cooldown), модель — только для прошедших.
 
+### 11.2. Автономия (Phase 7)
+
+Пакет `alya.autonomy`: `store.py` (таблицы initiatives, reminders, proactive_pauses, channel_state — миграция 0006), `policy.py` (тихие часы, score желания написать, совпадение с интересами), `scheduler.py` (AutonomyScheduler, тик раз в autonomy.check_interval_s). Запускается из TelegramService вместе с Sender; всё уходит через outbox с идемпотентными ключами (`chat:init:id:i`, `chat:rem:id:i`).
+
+Один тик:
+1. **Напоминания** — создаются планировщиком ответа (поля remind_at/remind_text, местное время, не дальше года). Доставляются даже в тихие часы: человек сам выбрал время. Если модель недоступна — шаблон «напоминаю: …».
+2. **Личка** (вне тихих часов) — кандидаты: устоявшийся диалог (владелец без порога), тишина не меньше dm_min_silence_hours, человек писал за dm_max_silence_days, нет /pause и блокировки. Отсев: не чаще раза в dm_per_person_hours, не повторять без ответа, общий лимит dm_max_per_day. Лучший по score выше dm_threshold → `CharacterEngine.initiate`: дешёвая модель решает «есть ли что сказать» (JSON write/intent/tone), потом обычная генерация и стиль. Отказ модели не записывается как инициатива; чат уходит в кулдаун consider_cooldown_hours. Не больше одного человека за тик.
+3. **Группы** — бесплатный фильтр до модели: за group_window_minutes не меньше group_min_messages сообщений от group_min_participants человек (не встревать в разговор двоих), Аля в окне не писала, совпадений с интересами (character.core.interests) не меньше group_min_hits, кулдаун group_cooldown_hours. Ответ — не больше двух сообщений, без адресата.
+4. **Каналы** — Pipeline сохраняет посты каналов, на которые подписан аккаунт, как context_only (срок — telegram.group_context_hours); в каналах Аля никогда не отвечает. Раз в channel_digest_hours роль utility выписывает до channel_max_facts фактов (посты помечены как недоверенные данные) в память персонажа: layer short, category world, provenance {source: channel}, confidence 0.5. Владелец выключает канал командой /channels off <id>.
+
+Команды: /pause и /resume — для любого собеседника в личке; /channels и /reminders — владельца. Ошибка одного шага тика логируется и не останавливает остальные; счётчики — AutonomyScheduler.stats.
+
 ## Telegram-слой (Phase 4)
 
 - **Клиент TDLib** (src/alya/telegram/tdlib): libtdjson грузится из pip-пакета tdjson, по пути ALYA_TDJSON_PATH или из системы. Чтение td_receive — в отдельном потоке, ответы сопоставляются по @extra, обновления разбираются по очереди.
