@@ -224,6 +224,8 @@ flowchart LR
 
 ## 🗺️ Статус
 
+[![CI](https://github.com/pizdalic/alya-v3/actions/workflows/ci.yml/badge.svg)](https://github.com/pizdalic/alya-v3/actions/workflows/ci.yml)
+
 - [x] **Phase 0–2** — основа: конфигурация, DI, Event Bus, SQLite с миграциями, логирование, Docker, CI
 - [x] **Phase 3** — память
 - [x] **Phase 4** — персонаж, настроение, стиль
@@ -233,6 +235,8 @@ flowchart LR
 - [x] **Phase 8** — укрепление и релиз
 
 План целиком — [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
+
+> Проверено владельцем локально 2026-11-09: установка, тесты и работа бота. Актуальный статус автоматических проверок — бейдж CI выше. Состав зависимостей и варианты установки — [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md).
 
 ## 📚 Документация
 
