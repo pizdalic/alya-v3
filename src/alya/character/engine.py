@@ -248,8 +248,9 @@ class CharacterEngine:
     def selfie_prompt(self, scene: str) -> str:
         look = self.character.core.appearance or (
             f"девушка {self.character.core.age} лет")
-        return ("Фотореалистичное любительское селфи на телефон, вертикальное. "
-                f"На фото: {look}. Сцена: {' '.join(scene.split())[:200]}. "
+        return ("Аниме-иллюстрация (2D anime art style), вертикальная, как селфи на телефон. "
+                "Не фотография и не реальный человек, без фотореализма. "
+                f"На картинке: {look}. Сцена: {' '.join(scene.split())[:200]}. "
                 "Без текста и водяных знаков, вся одежда на месте, никакого 18+.")
 
     async def _media_gate(self, chat_id: int, plan: Plan) -> tuple[str, str, str, list[str]]:
