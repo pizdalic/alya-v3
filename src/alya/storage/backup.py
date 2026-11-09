@@ -97,6 +97,26 @@ def rotate(dest: Path, *, keep: int, retain_days: int, now: datetime | None = No
     return removed
 
 
+SAFETY = ".pre-restore-"
+
+
+def prune_safety_copies(db_path: Path, *, retain_days: int,
+                        now: datetime | None = None) -> list[Path]:
+    """Копии БД перед restore тоже живут не дольше retain_days (ADR-0010: забытое уходит
+    из всех копий по сроку)."""
+    limit = (now or utcnow()) - timedelta(days=retain_days)
+    removed: list[Path] = []
+    for p in db_path.parent.glob(f"{db_path.name}{SAFETY}*"):
+        try:
+            stamp = datetime.strptime(p.name[len(db_path.name) + len(SAFETY):], STAMP)
+        except ValueError:
+            continue
+        if stamp.replace(tzinfo=UTC) < limit:
+            p.unlink(missing_ok=True)
+            removed.append(p)
+    return removed
+
+
 def create_backup(db_path: Path, dest: Path, *, keep: int = 7, retain_days: int = 7,
                   now: datetime | None = None) -> Path:
     if not db_path.exists():
@@ -115,6 +135,7 @@ def create_backup(db_path: Path, dest: Path, *, keep: int = 7, retain_days: int 
     part.chmod(0o600)
     part.replace(final)
     rotate(dest, keep=keep, retain_days=retain_days, now=moment)
+    prune_safety_copies(db_path, retain_days=retain_days, now=moment)
     return final
 
 
@@ -140,7 +161,7 @@ def restore_backup(backup: Path, db_path: Path, *, now: datetime | None = None) 
             tombstones = read_tombstones(cur)
         finally:
             cur.close()
-        safety = db_path.with_name(f"{db_path.name}.pre-restore-{(now or utcnow()).strftime(STAMP)}")
+        safety = db_path.with_name(f"{db_path.name}{SAFETY}{(now or utcnow()).strftime(STAMP)}")
         _copy(db_path, safety)
         safety.chmod(0o600)
     else:

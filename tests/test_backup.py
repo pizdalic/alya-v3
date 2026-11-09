@@ -6,6 +6,7 @@ from pathlib import Path
 from alya.memory.models import MemoryContext
 from alya.storage.backup import (BackupError, BackupScheduler, create_backup, export_user,
                                  list_backups, restore_backup, rotate)
+from alya.storage.backup import SAFETY
 from tests.memory_helpers import A, B, MemoryTestCase
 
 NOW = datetime(2026, 11, 9, 12, 0, tzinfo=UTC)
@@ -94,3 +95,12 @@ class BackupTests(MemoryTestCase):
             self.assertIsNone(await bad.run_once())
         await ok.start()
         await ok.stop()
+
+    def test_safety_copies_expire(self) -> None:
+        old = self.db_path.with_name(f"{self.db_path.name}{SAFETY}20261001-000000")
+        fresh = self.db_path.with_name(f"{self.db_path.name}{SAFETY}20261108-000000")
+        for f in (old, fresh):
+            f.write_bytes(b"x")
+        create_backup(self.db_path, self.dest, retain_days=7, now=NOW)
+        self.assertFalse(old.exists())
+        self.assertTrue(fresh.exists())
