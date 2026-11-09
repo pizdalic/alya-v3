@@ -268,6 +268,7 @@ def build_character(settings: Settings, db: Database, memory: MemoryService | No
         max_reply_tokens=cs.max_reply_tokens,
         searcher=build_searcher(settings) if limiter is not None else None,
         limiter=limiter,
+        sticker_pick=StickerStore(db).pick if settings.media.stickers else None,
     )
 
 
