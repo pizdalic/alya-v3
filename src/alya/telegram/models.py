@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
+from alya.media.models import MediaRef
+
 type ChatKind = Literal["private", "group", "supergroup", "channel"]
 
 
@@ -27,6 +29,8 @@ class IncomingMessage:
     media_kind: str | None = None
     chat_title: str | None = None
     sender_is_contact: bool = False
+    media: MediaRef | None = None  # вложение для скачивания (фото, голос, стикер)
+    caption: str = ""  # подпись к вложению без пометки
 
     @property
     def is_private(self) -> bool:

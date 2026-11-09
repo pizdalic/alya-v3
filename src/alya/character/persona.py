@@ -51,6 +51,7 @@ class CoreProfile(_Model):
     rules: list[str] = Field(default_factory=list, max_length=30)
     honesty: str = Field(min_length=1, max_length=1000)
     honest_reply: str = Field(min_length=1, max_length=300)
+    appearance: str = Field(default="", max_length=600)  # для селфи (Phase 6)
     style: StyleProfile = Field(default_factory=StyleProfile)
 
 

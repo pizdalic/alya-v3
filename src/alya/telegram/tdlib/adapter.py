@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from alya.core.timeutil import utcnow
+from alya.media.models import MediaRef
 from alya.telegram.models import ChatKind, IncomingMessage, MessageEdited, MessagesDeleted
 from alya.telegram.sanitize import clean_incoming
 from alya.telegram.tdlib.auth import username_of
@@ -28,6 +29,61 @@ _MEDIA = {
     "messageVideoNote": ("video_note", "[кружок]"),
     "messageSticker": ("sticker", "[стикер]"),
 }
+
+
+_MAX_PHOTO_PICK = 10 * 1024 * 1024
+
+
+def _file(obj: TdObject | None) -> tuple[int | None, int]:
+    f = obj or {}
+    if not f.get("id"):
+        return None, 0
+    return int(f["id"]), int(f.get("size") or f.get("expected_size") or 0)
+
+
+def media_ref(content: TdObject) -> MediaRef | None:
+    """Вложение TDLib → MediaRef (только метаданные, без скачивания)."""
+    kind = content.get("@type")
+    if kind == "messagePhoto":
+        sizes = [s for s in ((content.get("photo") or {}).get("sizes") or []) if s.get("photo")]
+        if not sizes:
+            return MediaRef("photo")
+        sizes.sort(key=lambda s: int(s.get("width") or 0) * int(s.get("height") or 0))
+        fitting = [s for s in sizes if _file(s["photo"])[1] <= _MAX_PHOTO_PICK]
+        fid, size = _file((fitting or sizes)[-1]["photo"])
+        return MediaRef("photo", fid, size, "image/jpeg")
+    if kind == "messageDocument":
+        doc = content.get("document") or {}
+        fid, size = _file(doc.get("document"))
+        return MediaRef("document", fid, size, str(doc.get("mime_type") or ""))
+    if kind == "messageVoiceNote":
+        v = content.get("voice_note") or {}
+        fid, size = _file(v.get("voice"))
+        return MediaRef("voice", fid, size, str(v.get("mime_type") or "audio/ogg"),
+                        int(v.get("duration") or 0))
+    if kind == "messageVideoNote":
+        v = content.get("video_note") or {}
+        fid, size = _file(v.get("video"))
+        return MediaRef("video_note", fid, size, "video/mp4", int(v.get("duration") or 0))
+    if kind == "messageSticker":
+        st = content.get("sticker") or {}
+        fid, size = _file(st.get("sticker"))
+        set_id = st.get("set_id")
+        return MediaRef("sticker", fid, size, emoji=str(st.get("emoji") or ""),
+                        set_id=int(set_id) if set_id else None)
+    simple = {"messageVideo": ("video", "video"), "messageAnimation": ("animation", "animation"),
+              "messageAudio": ("audio", "audio")}
+    if kind in simple:
+        media, key = simple[kind]
+        obj = content.get(key) or {}
+        fid, size = _file(obj.get(key))
+        return MediaRef(media, fid, size, str(obj.get("mime_type") or ""),  # type: ignore[arg-type]
+                        int(obj.get("duration") or 0))
+    return None
+
+
+def _local(path: str) -> TdObject:
+    return {"@type": "inputFileLocal", "path": path}
 
 
 class Requester(Protocol):
@@ -53,6 +109,14 @@ def content_text(content: TdObject) -> tuple[str, list[TdObject], str | None]:
             label = f"[стикер {emoji}]" if emoji else label
         return (text or label), list(caption.get("entities") or []) if text else [], media
     return "", [], None
+
+
+def _read_limited(path: str, max_bytes: int) -> bytes:
+    with open(path, "rb") as fh:
+        data = fh.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise TransportError("файл слишком большой", permanent=True)
+    return data
 
 
 class TdlibAdapter:
@@ -187,6 +251,9 @@ class TdlibAdapter:
                                    {"@type": "getUser", "user_id": sender_id}) or {}
         name = " ".join(p for p in (user.get("first_name"), user.get("last_name")) if p).strip()
         chat = self._chats.get(chat_id) or {}
+        content = m.get("content") or {}
+        ref = media_ref(content) if media else None
+        caption = clean_incoming(((content.get("caption") or {}).get("text") or "")) if media else ""
         return IncomingMessage(
             chat_id=chat_id, message_id=int(m["id"]), sender_id=sender_id, chat_kind=kind,
             text=clean_incoming(raw), date=datetime.fromtimestamp(int(m.get("date") or 0), UTC),
@@ -195,7 +262,7 @@ class TdlibAdapter:
             reply_to_user_id=reply_user, mentioned_user_ids=frozenset(ids),
             mentioned_usernames=frozenset(names), media_kind=media,
             chat_title=chat.get("title") if kind != "private" else None,
-            sender_is_contact=bool(user.get("is_contact")))
+            sender_is_contact=bool(user.get("is_contact")), media=ref, caption=caption)
 
     # --- исходящие ---------------------------------------------------------
 
@@ -213,13 +280,82 @@ class TdlibAdapter:
                 fut.set_result(result)
 
     async def send_text(self, chat_id: int, text: str, *, reply_to: int | None = None) -> int:
-        query: TdObject = {
-            "@type": "sendMessage", "chat_id": chat_id,
-            "input_message_content": {
-                "@type": "inputMessageText",
-                "text": {"@type": "formattedText", "text": text, "entities": []},
-            },
-        }
+        return await self._send(chat_id, {
+            "@type": "inputMessageText",
+            "text": {"@type": "formattedText", "text": text, "entities": []},
+        }, reply_to)
+
+    async def send_voice(self, chat_id: int, path: str, duration_s: int, *,
+                         reply_to: int | None = None) -> int:
+        return await self._send(chat_id, {"@type": "inputMessageVoiceNote",
+                                          "voice_note": _local(path),
+                                          "duration": int(duration_s), "waveform": ""},
+                                reply_to)
+
+    async def send_photo(self, chat_id: int, path: str, *, caption: str = "",
+                         reply_to: int | None = None) -> int:
+        content: TdObject = {"@type": "inputMessagePhoto", "photo": _local(path),
+                             "width": 0, "height": 0}
+        if caption:
+            content["caption"] = {"@type": "formattedText", "text": caption, "entities": []}
+        return await self._send(chat_id, content, reply_to)
+
+    async def send_sticker(self, chat_id: int, remote_id: str, *,
+                           reply_to: int | None = None) -> int:
+        return await self._send(chat_id, {
+            "@type": "inputMessageSticker",
+            "sticker": {"@type": "inputFileRemote", "id": remote_id},
+            "width": 0, "height": 0, "emoji": ""}, reply_to)
+
+    async def react(self, chat_id: int, message_id: int, emoji: str) -> None:
+        await self._client.request({
+            "@type": "addMessageReaction", "chat_id": chat_id, "message_id": message_id,
+            "reaction_type": {"@type": "reactionTypeEmoji", "emoji": emoji},
+            "is_big": False, "update_recent_reactions": True})
+
+    async def download(self, file_id: int, max_bytes: int) -> bytes:
+        info = await self._client.request({"@type": "getFile", "file_id": file_id})
+        size = int(info.get("size") or info.get("expected_size") or 0)
+        if size > max_bytes:
+            raise TransportError("файл слишком большой", permanent=True)
+        f = await self._client.request({"@type": "downloadFile", "file_id": file_id,
+                                        "priority": 16, "offset": 0, "limit": 0,
+                                        "synchronous": True}, timeout=180)
+        local = f.get("local") or {}
+        path = local.get("path")
+        if not path or not local.get("is_downloading_completed"):
+            raise TransportError("файл не скачался")
+        data = await asyncio.to_thread(_read_limited, str(path), max_bytes)
+        try:
+            await self._client.request({"@type": "deleteFile", "file_id": file_id})
+        except TransportError:
+            pass  # кэш TDLib чистится и сам
+        return data
+
+    async def join_by_link(self, link: str) -> int:
+        chat = await self._client.request({"@type": "joinChatByInviteLink", "invite_link": link})
+        return int(chat.get("id") or 0)
+
+    async def set_bio(self, text: str) -> None:
+        await self._client.request({"@type": "setBio", "bio": text})
+
+    async def set_avatar(self, path: str) -> None:
+        await self._client.request({"@type": "setProfilePhoto", "is_public": False,
+                                    "photo": {"@type": "inputChatPhotoStatic",
+                                              "photo": _local(path)}})
+
+    async def sticker_set(self, name: str) -> list[tuple[str, str]]:
+        found = await self._client.request({"@type": "searchStickerSet", "name": name})
+        out: list[tuple[str, str]] = []
+        for st in found.get("stickers") or []:
+            remote = ((st.get("sticker") or {}).get("remote") or {}).get("id")
+            if remote:
+                out.append((str(remote), str(st.get("emoji") or "")))
+        return out
+
+    async def _send(self, chat_id: int, content: TdObject, reply_to: int | None) -> int:
+        query: TdObject = {"@type": "sendMessage", "chat_id": chat_id,
+                           "input_message_content": content}
         if reply_to:
             query["reply_to"] = {"@type": "inputMessageReplyToMessage", "message_id": reply_to}
         temp = await self._client.request(query)

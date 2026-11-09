@@ -19,6 +19,7 @@ from alya.storage.db import Database
 from alya.storage.entities import add_member, upsert_chat, upsert_user
 from alya.telegram.addressee import AddresseeDetector, Decision
 from alya.telegram.debounce import Debouncer
+from alya.telegram.media_flow import MediaKit, outgoing, sent_text
 from alya.telegram.models import IncomingMessage, MessageEdited, MessagesDeleted
 from alya.telegram.outbox import OutboxItem, OutboxStore
 from alya.telegram.sanitize import clean_outgoing
@@ -53,7 +54,7 @@ class Pipeline:
     def __init__(self, db: Database, engine: Responder, detector: AddresseeDetector,
                  outbox: OutboxStore, *, config: PipelineConfig,
                  transport: Transport | None = None, wake: Callable[[], None] | None = None,
-                 clock: Clock = utcnow) -> None:
+                 clock: Clock = utcnow, media: MediaKit | None = None) -> None:
         self._db = db
         self._engine = engine
         self._detector = detector
@@ -62,6 +63,7 @@ class Pipeline:
         self._transport = transport
         self._wake = wake
         self._clock = clock
+        self._media = media
         self._replies: dict[int, deque[datetime]] = {}
         self._chat_locks: dict[int, asyncio.Lock] = {}
         self._debouncer: Debouncer[tuple[int, int], IncomingMessage] = Debouncer(
@@ -138,10 +140,50 @@ class Pipeline:
             return
         if msg.sender_id is None or msg.sender_id == self._cfg.me_id:
             return
+        if await self._command(msg):
+            return
         if not await self._allowed(msg):
             return
         await self._store(msg, sender_id=msg.sender_id)
         self._debouncer.add((msg.chat_id, msg.sender_id), msg)
+
+    async def _command(self, msg: IncomingMessage) -> bool:
+        commands = self._media.commands if self._media is not None else None
+        if commands is None or not commands.accepts(msg):
+            return False
+        answer = await commands.handle(msg)
+        if answer is None:
+            return False
+        await self._outbox.enqueue(msg.chat_id, f"{msg.chat_id}:{msg.message_id}:cmd", {
+            "text": answer, "reply_to": None, "typing_s": 0, "addressees": [],
+            "system": True})
+        if self._wake is not None:
+            self._wake()
+        return True
+
+    async def _describe(self, chat_id: int, msgs: list[IncomingMessage]) -> list[IncomingMessage]:
+        """Заменяет пометки «[фото]»/«[голосовое]» описанием или расшифровкой."""
+        processor = self._media.processor if self._media is not None else None
+        download = getattr(self._transport, "download", None)
+        if processor is None or download is None:
+            return msgs
+        out: list[IncomingMessage] = []
+        for m in msgs:
+            if m.media is None:
+                out.append(m)
+                continue
+            try:
+                text = await processor.describe(m.media, m.caption, download, chat_id=chat_id)
+            except Exception as exc:
+                log.warning("вложение не обработано: %s", type(exc).__name__)
+                text = m.text
+            if text and text != m.text:
+                await self._db.execute(
+                    "UPDATE messages SET text = ? WHERE chat_id = ? AND tg_message_id = ?",
+                    (text, chat_id, m.message_id))
+                m = replace(m, text=text)
+            out.append(m)
+        return out
 
     async def on_edit(self, ev: MessageEdited) -> None:
         await self._db.execute(
@@ -194,6 +236,8 @@ class Pipeline:
         if not self._rate_ok(chat_id):
             log.warning("лимит ответов в чате %s: пропускаю", chat_id)
             return
+        msgs = await self._describe(chat_id, msgs)
+        last = msgs[-1]
         text = "\n".join(m.text for m in msgs if m.text)
         ctx = (MemoryContext.private(sender_id, chat_id) if last.is_private
                else MemoryContext.group(chat_id, sender_id))
@@ -205,28 +249,31 @@ class Pipeline:
                 await self._transport.mark_read(chat_id, ids)
             except Exception as exc:
                 log.debug("не удалось отметить прочитанным: %s", exc)
-        if not parts:
-            return
         quote = last.is_group and chosen.reason in _EXPLICIT
-        for i, part in enumerate(parts):
-            typing = min(len(part) / self._cfg.typing_chars_per_s, self._cfg.max_typing_delay_s)
-            await self._outbox.enqueue(chat_id, f"{chat_id}:{last.message_id}:{i}", {
-                "text": part,
-                "reply_to": last.message_id if (quote and i == 0) else None,
-                "typing_s": round(typing, 2),
-                "addressees": [sender_id],
-            })
+        items = await outgoing(
+            self._media, chat_id=chat_id, sender_id=sender_id, last=last,
+            actions=getattr(reply, "actions", None), parts=parts, quote=quote,
+            typing=lambda part: min(len(part) / self._cfg.typing_chars_per_s,
+                                    self._cfg.max_typing_delay_s))
+        if not items:
+            return
+        for key, payload in items:
+            await self._outbox.enqueue(chat_id, key, payload)
         if self._wake is not None:
             self._wake()
 
     async def on_sent(self, item: OutboxItem, tg_id: int) -> None:
-        text = str(item.payload.get("text", ""))
+        stored = sent_text(item.payload)
+        if stored is None:
+            return
+        text, media_kind = stored
         rows = await self._db.fetchall("SELECT kind FROM chats WHERE chat_id = ?", (item.chat_id,))
         kind = rows[0][0] if rows else "private"
         now = self._clock()
         out = IncomingMessage(chat_id=item.chat_id, message_id=tg_id, sender_id=self._cfg.me_id,
                               chat_kind=kind, text=text, date=now, is_outgoing=True,
-                              reply_to_message_id=item.payload.get("reply_to"))
+                              reply_to_message_id=item.payload.get("reply_to"),
+                              media_kind=media_kind)
         await self._store(replace(out), sender_id=self._cfg.me_id)
         if kind in ("group", "supergroup"):
             self._detector.note_alya_message(item.chat_id, text,

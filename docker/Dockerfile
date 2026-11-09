@@ -11,6 +11,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     ALYA_APP__DATA_DIR=/app/runtime \
     ALYA_STORAGE__DB_PATH=/app/runtime/alya.sqlite3 \
     ALYA_TELEGRAM__SESSION_DIR=/app/runtime/td_database
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg \
+ && rm -rf /var/lib/apt/lists/*
 RUN groupadd --system --gid 10001 alya \
  && useradd --system --uid 10001 --gid alya --home-dir /app --shell /usr/sbin/nologin alya
 WORKDIR /app

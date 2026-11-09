@@ -22,7 +22,8 @@ from alya.llm.openai_compat import (
     _retry_after,
 )
 
-type ChatMessage = Mapping[str, str]
+# content — строка или список частей (text / image_url / input_audio) для мультимодальных ролей
+type ChatMessage = Mapping[str, Any]
 
 
 class ChatModel(Protocol):
@@ -69,11 +70,33 @@ class OpenAICompatibleChat:
         }
         if json_mode:
             body["response_format"] = {"type": "json_object"}
+        return self._parse(await self._request(body))
+
+    async def raw(self, messages: Sequence[ChatMessage], *, max_tokens: int = 400,
+                  temperature: float = 0.7,
+                  extra: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        """Сырой message из ответа: нужен медиа-клиентам (картинки, аннотации поиска)."""
+        body: dict[str, Any] = {
+            "model": self._model,
+            "messages": [dict(m) for m in messages],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            **dict(extra or {}),
+        }
+        data = await self._request(body)
+        try:
+            message = data["choices"][0]["message"]
+        except (KeyError, IndexError, TypeError):
+            raise LLMHTTPError("неожиданный формат ответа чата") from None
+        if not isinstance(message, dict):
+            raise LLMHTTPError("неожиданный формат ответа чата")
+        return message
+
+    async def _request(self, body: dict[str, Any]) -> Any:
         attempt = 0
         while True:
             try:
-                data = await asyncio.to_thread(self._post, body)
-                return self._parse(data)
+                return await asyncio.to_thread(self._post, body)
             except _Retryable as exc:
                 if attempt >= self._retries:
                     raise LLMHTTPError(exc.message, exc.status) from None

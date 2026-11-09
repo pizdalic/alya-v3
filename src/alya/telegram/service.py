@@ -9,6 +9,8 @@ from alya.core.config import Settings
 from alya.llm.chat import ChatModel
 from alya.storage.db import Database
 from alya.telegram.addressee import AddresseeDetector, LLMAddresseeClassifier
+from alya.telegram.commands import OwnerCommands
+from alya.telegram.media_flow import MediaKit
 from alya.telegram.outbox import OutboxStore
 from alya.telegram.pipeline import Pipeline, PipelineConfig, Responder
 from alya.telegram.sender import Sender
@@ -27,12 +29,14 @@ class TelegramService:
 
     def __init__(self, settings: Settings, db: Database, engine: Responder, *,
                  classifier_chat: ChatModel | None = None,
-                 loader: Callable[[], TdJson] = load_tdjson) -> None:
+                 loader: Callable[[], TdJson] = load_tdjson,
+                 media: MediaKit | None = None) -> None:
         self._settings = settings
         self._db = db
         self._engine = engine
         self._classifier_chat = classifier_chat
         self._loader = loader
+        self._media = media
         self._client: TdClient | None = None
         self._sender: Sender | None = None
         self._pipeline: Pipeline | None = None
@@ -51,8 +55,14 @@ class TelegramService:
                                      thread_ttl_s=tg.thread_ttl_s, classifier=classifier)
         outbox = OutboxStore(self._db)
         adapter = TdlibAdapter(client, me_id=me_id)
+        if self._media is not None:
+            self._media.commands = OwnerCommands(
+                adapter, owner_id=self._settings.app.owner_user_id,
+                limiter=self._media.limiter, stickers=self._media.stickers,
+                media_dir=self._media.media_dir,
+                max_image_bytes=self._settings.media.max_image_bytes)
         pipeline = Pipeline(self._db, self._engine, detector, outbox, transport=adapter,
-                            config=PipelineConfig(
+                            media=self._media, config=PipelineConfig(
                                 me_id=me_id, owner_id=self._settings.app.owner_user_id,
                                 strangers=tg.strangers,
                                 group_context_hours=tg.group_context_hours,
