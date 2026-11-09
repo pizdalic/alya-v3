@@ -16,6 +16,9 @@ from alya.telegram.addressee import AddresseeDetector, LLMAddresseeClassifier
 from alya.telegram.commands import OwnerCommands
 from alya.telegram.media_flow import MediaKit
 from alya.telegram.outbox import OutboxStore
+from alya.plugins.registry import PluginHost, load_plugins
+from alya.telegram.commands import COMMAND_NAMES
+from alya.telegram.privacy import NAMES as PRIVACY_NAMES
 from alya.telegram.privacy import PrivacyCommands
 from alya.telegram.pipeline import Pipeline, PipelineConfig, Responder
 from alya.telegram.sender import Sender
@@ -49,6 +52,21 @@ class TelegramService:
         self._pipeline: Pipeline | None = None
         self.ready = False
 
+    def _load_plugins(self) -> PluginHost | None:
+        cfg = self._settings.plugins
+        if not cfg.enabled:
+            return None
+        loaded, errors = load_plugins(cfg.dir, cfg.grants,
+                                      reserved=COMMAND_NAMES | PRIVACY_NAMES)
+        for err in errors:
+            log.warning("плагин: %s", err)
+        for p in loaded:
+            log.info("плагин %s %s: %s [%s]", p.name, p.version, ", ".join(p.commands),
+                     ", ".join(sorted(p.permissions)))
+        return PluginHost(self._db, loaded, owner_id=self._settings.app.owner_user_id,
+                          data_dir=self._settings.app.data_dir / "plugins_data",
+                          memory=self._memory, timeout_s=cfg.timeout_s)
+
     async def start(self) -> None:
         tg = self._settings.telegram
         client = TdClient(self._loader())
@@ -75,8 +93,10 @@ class TelegramService:
                                    owner_id=self._settings.app.owner_user_id,
                                    timezone=self._settings.app.timezone)
                    if self._memory is not None else None)
+        plugins = self._load_plugins()
         pipeline = Pipeline(self._db, self._engine, detector, outbox, transport=adapter,
                             media=self._media, autonomy=autonomy, privacy=privacy,
+                            plugins=plugins,
                             config=PipelineConfig(
                                 me_id=me_id, owner_id=self._settings.app.owner_user_id,
                                 strangers=tg.strangers,

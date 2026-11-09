@@ -9,7 +9,7 @@ from collections import deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from alya.autonomy.store import AutonomyStore
 from alya.character.allocator import HistoryLine
@@ -24,6 +24,9 @@ from alya.telegram.media_flow import MediaKit, outgoing, sent_text
 from alya.telegram.models import IncomingMessage, MessageEdited, MessagesDeleted
 from alya.telegram.outbox import OutboxItem, OutboxStore
 from alya.telegram.privacy import PrivacyCommands
+
+if TYPE_CHECKING:
+    from alya.plugins.registry import PluginHost
 from alya.telegram.sanitize import clean_outgoing
 from alya.telegram.transport import Transport
 
@@ -59,8 +62,10 @@ class Pipeline:
                  transport: Transport | None = None, wake: Callable[[], None] | None = None,
                  clock: Clock = utcnow, media: MediaKit | None = None,
                  autonomy: AutonomyStore | None = None,
-                 privacy: PrivacyCommands | None = None) -> None:
+                 privacy: PrivacyCommands | None = None,
+                 plugins: PluginHost | None = None) -> None:
         self._privacy = privacy
+        self._plugins = plugins
         self._db = db
         self._engine = engine
         self._detector = detector
@@ -158,6 +163,9 @@ class Pipeline:
             return
         if not await self._allowed(msg):
             return
+        if self._plugins is not None and self._plugins.accepts(msg):
+            await self._system_replies(msg, await self._plugins.handle(msg), "plug")
+            return
         await self._store(msg, sender_id=msg.sender_id)
         if await self._pause_command(msg):
             return
@@ -185,9 +193,12 @@ class Pipeline:
 
     async def _privacy_reply(self, msg: IncomingMessage) -> None:
         assert self._privacy is not None
-        answers = await self._privacy.handle(msg)
+        await self._system_replies(msg, await self._privacy.handle(msg), "priv")
+
+    async def _system_replies(self, msg: IncomingMessage, answers: list[str], tag: str) -> None:
+        """Служебные ответы: минуя модель, не пишутся в историю."""
         for i, text in enumerate(answers):
-            await self._outbox.enqueue(msg.chat_id, f"{msg.chat_id}:{msg.message_id}:priv:{i}", {
+            await self._outbox.enqueue(msg.chat_id, f"{msg.chat_id}:{msg.message_id}:{tag}:{i}", {
                 "text": text, "reply_to": None, "typing_s": 0, "addressees": [],
                 "system": True})
         if answers and self._wake is not None:

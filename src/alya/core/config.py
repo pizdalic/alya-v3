@@ -236,6 +236,25 @@ class AutonomySection(_Section):
     jitter: float = Field(default=0.08, ge=0, le=0.5)
 
 
+class PluginsSection(_Section):
+    """Плагины (Phase 8): загружаются только перечисленные в grants."""
+
+    enabled: bool = False
+    dir: Path = Path("plugins")
+    timeout_s: float = Field(default=10.0, gt=0, le=120)
+    grants: dict[str, list[str]] = Field(default_factory=dict)
+
+    @field_validator("grants")
+    @classmethod
+    def _known_permissions(cls, value: dict[str, list[str]]) -> dict[str, list[str]]:
+        known = {"reply", "recall", "storage"}
+        for name, perms in value.items():
+            bad = sorted(set(perms) - known)
+            if bad:
+                raise ValueError(f"plugins.grants.{name}: неизвестные разрешения {bad}")
+        return value
+
+
 class Settings(_Section):
     app: AppSection = Field(default_factory=AppSection)
     telegram: TelegramSection = Field(default_factory=TelegramSection)
@@ -248,6 +267,7 @@ class Settings(_Section):
     dream: DreamSection = Field(default_factory=DreamSection)
     media: MediaSection = Field(default_factory=MediaSection)
     autonomy: AutonomySection = Field(default_factory=AutonomySection)
+    plugins: PluginsSection = Field(default_factory=PluginsSection)
 
     def problems_for_run(self) -> list[str]:
         """Чего не хватает для полноценной работы (формально конфиг при этом валиден)."""

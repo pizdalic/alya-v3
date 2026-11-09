@@ -51,6 +51,10 @@ class AccountTransport(Protocol):
     async def download(self, file_id: int, max_bytes: int) -> bytes: ...
 
 
+COMMAND_NAMES = frozenset({"/join", "/bio", "/avatar", "/stickers", "/media", "/channels",
+                           "/reminders", "/help", "/pause", "/resume", "/start"})
+
+
 class OwnerCommands:
     def __init__(self, transport: AccountTransport, *, owner_id: int | None,
                  limiter: UsageLimiter | None = None, stickers: StickerStore | None = None,
