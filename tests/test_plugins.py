@@ -87,7 +87,7 @@ class PluginTests(MemoryTestCase):
         self.assertIn("запрещённые", text)
 
     def test_effective_permissions_are_intersection(self) -> None:
-        raw = {"name": "x", "commands": ["/x"], "permissions": ["reply", "recall"]}
+        raw = {"name": "xx", "commands": ["/xx"], "permissions": ["reply", "recall"]}
         *_, perms, _aud = validate(raw, granted=["reply"])
         self.assertEqual(perms, frozenset({"reply"}))
         with self.assertRaises(PluginError):

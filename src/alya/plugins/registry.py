@@ -145,7 +145,7 @@ def load_plugins(directory: Path, grants: Mapping[str, Iterable[str]], *,
             handler = getattr(module, "handle", None)
             if not asyncio.iscoroutinefunction(handler):
                 raise PluginError(f"{name}: нужна async def handle(ctx, command, args)")
-        except Exception as exc:  # noqa: BLE001 — чужой код, любая ошибка = отказ
+        except (Exception, SystemExit) as exc:  # noqa: BLE001 — чужой код, любая ошибка = отказ
             sys.modules.pop(f"alya_plugin_{stem}", None)
             errors.append(str(exc) if isinstance(exc, PluginError)
                           else f"{path.name}: {type(exc).__name__}: {exc}")
@@ -216,7 +216,7 @@ class PluginContext:
 
 
 class PluginHost:
-    """Маршрутизация команд к плагинам, тайм-аут, аудит. Только личные чаты."""
+    """Маршрути��ация команд к плагинам, тайм-аут, аудит. Только личные чаты."""
 
     def __init__(self, db: Database, plugins: Iterable[LoadedPlugin], *, owner_id: int | None,
                  data_dir: Path, memory: Recaller | None = None, timeout_s: float = 10.0,
@@ -277,7 +277,7 @@ class PluginHost:
         except TimeoutError:
             status = "timeout"
             log.warning("plugin %s: тайм-аут %.0f с", plugin.name, self._timeout)
-        except Exception:  # noqa: BLE001 — падение плагина не роняет Алю
+        except (Exception, SystemExit):  # noqa: BLE001 — падение плагина не роняет Алю
             status = "error"
             log.exception("plugin %s упал", plugin.name)
         await audit("plugin_run", {"plugin": plugin.name, "command": command, "status": status})
