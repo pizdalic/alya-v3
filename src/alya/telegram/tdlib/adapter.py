@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Sequence
@@ -337,12 +338,13 @@ class TdlibAdapter:
 
     async def _send_sticker_step(self, chat_id: int, sticker: TdObject, reply_to: int | None,
                                  short: str, how: str) -> int:
-        content: TdObject = {"@type": "inputMessageSticker", "sticker": sticker,
-                             "width": 0, "height": 0, "emoji": ""}
+        # только обязательное поле: width/height/emoji у TDLib по умолчанию и так 0/""
+        content: TdObject = {"@type": "inputMessageSticker", "sticker": sticker}
         try:
             msg_id = await self._send(chat_id, content, reply_to)
         except TransportError as exc:
-            log.warning("стикер %s: sendMessage (%s) отклонён: %s", short, how, exc)
+            log.warning("стикер %s: sendMessage (%s) отклонён: %s; input_message_content=%s",
+                        short, how, exc, json.dumps(content, ensure_ascii=False))
             raise
         log.info("стикер %s: отправлен в чат %s через %s", short, chat_id, how)
         return msg_id
@@ -362,6 +364,13 @@ class TdlibAdapter:
             raise TransportError("стикер не скачался")
         log.info("стикер %s: скачан в %s", short, path)
         return str(path)
+
+    async def td_version(self) -> str:
+        try:
+            opt = await self._client.request({"@type": "getOption", "name": "version"})
+        except TransportError:
+            return "?"
+        return str(opt.get("value") or "?")
 
     async def react(self, chat_id: int, message_id: int, emoji: str) -> None:
         await self._client.request({
