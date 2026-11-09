@@ -30,7 +30,9 @@ PLAN_SCHEMA = """{
   "sticker": "",                   // эмодзи стикера после ответа или "" (редко)
   "voice": false,                  // true — ответить голосовым (очень редко: просят или очень к месту)
   "selfie": "",                    // просят твоё фото — что на нём, коротко; иначе ""
-  "search": ""                     // нужен свежий факт из интернета — поисковый запрос; иначе ""
+  "search": "",                    // нужен свежий факт из интернета — поисковый запрос; иначе ""
+  "remind_at": "",                 // просят напомнить — когда, "ГГГГ-ММ-ДД ЧЧ:ММ" по Екатеринбургу; иначе ""
+  "remind_text": ""                // о чём напомнить, коротко
 }"""
 
 # Реакции, которые Telegram разрешает по умолчанию; грубые убраны — Аля милая.
@@ -92,6 +94,18 @@ class Plan(BaseModel):
     voice: bool = False
     selfie: str = ""
     search: str = ""
+    remind_at: str = ""
+    remind_text: str = ""
+
+    @field_validator("remind_at", mode="before")
+    @classmethod
+    def _remind_at(cls, v: Any) -> str:
+        return _short(v, 40) if isinstance(v, str) else ""
+
+    @field_validator("remind_text", mode="before")
+    @classmethod
+    def _remind_text(cls, v: Any) -> str:
+        return _short(v, 300) if isinstance(v, str) else ""
 
     @field_validator("reaction", mode="before")
     @classmethod

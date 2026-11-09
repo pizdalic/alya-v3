@@ -9,13 +9,14 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from typing import Protocol
 from zoneinfo import ZoneInfo
 
 from alya.character.allocator import Allocation, ContextAllocator, HistoryLine
 from alya.character.emotion import VAD, EmotionStore, describe
 from alya.character.persona import Character
-from alya.character.planner import PLAN_SCHEMA, Plan, parse_plan
+from alya.character.planner import PLAN_SCHEMA, Plan, _FENCE, parse_plan
 from alya.character.relationships import Relationship, RelationshipStore
 from alya.character.style import Stylizer
 from alya.core.timeutil import Clock, utcnow
@@ -36,6 +37,12 @@ _DENIAL = re.compile(
     r"(я\s+(обычный|обычная)?\s*человек)|(не\s+бот\s+я)",
     re.I)
 _SPEAKER_PREFIX = re.compile(r"^\s*(аля|alya)\s*:\s*", re.I)
+MAX_REMINDER_DAYS = 365
+INITIATIVE_SCHEMA = """{
+  "write": false,     // true — есть естественный повод написать первой прямо сейчас
+  "intent": "",      // что именно написать, коротко
+  "tone": ""         // тон, 1-3 слова
+}"""
 
 
 class Searcher(Protocol):
@@ -69,6 +76,7 @@ class Reply:
     context_tokens: int
     actions: ReplyActions = field(default_factory=ReplyActions)
     searched: bool = False
+    reminder: tuple[datetime, str] | None = None  # (когда, UTC; о чём)
 
 
 class CharacterEngine:
@@ -248,7 +256,75 @@ class CharacterEngine:
             sticker=plan.sticker if messages else "",
             voice=plan.voice and bool(messages) and not plan.sincere_ai_question,
             selfie=plan.selfie if messages else "")
-        return Reply(messages, plan, degraded, mood, rel, alloc.tokens, actions, bool(facts))
+        return Reply(messages, plan, degraded, mood, rel, alloc.tokens, actions, bool(facts),
+                     self._reminder(plan))
+
+    def _reminder(self, plan: Plan) -> tuple[datetime, str] | None:
+        """Разбирает remind_at по местному времени; прошедшее и дальше года отбрасываются."""
+        if not plan.remind_at or not plan.remind_text:
+            return None
+        try:
+            local = datetime.strptime(plan.remind_at.strip()[:16], "%Y-%m-%d %H:%M")
+        except ValueError:
+            return None
+        due = local.replace(tzinfo=self._tz)
+        now = self._clock()
+        if due <= now or due > now + timedelta(days=MAX_REMINDER_DAYS):
+            return None
+        return due, plan.remind_text
+
+    async def initiate(self, ctx: MemoryContext, *, name: str, reason: str,
+                       history: list[HistoryLine] | None = None) -> list[str]:
+        """Инициатива: дешёвая модель решает, есть ли что сказать, затем обычная генерация.
+
+        Пустой список — писать не нужно (или модель недоступна: при сомнении молчим).
+        """
+        turn = Turn(ctx, reason, name, list(history or []), True)
+        mood = await self._emotions.current()
+        rel = await self._relationships.get(ctx.user_id, ctx.chat_id)
+        memories = await self._recall(turn)
+        alloc = self._allocator.allocate(core=self.character.core_prompt(),
+                                         state=self._state_text(turn, mood, rel),
+                                         memories=memories, history=turn.history)
+        lines = [f"{'ты' if h.is_alya else h.author}: {h.text}" for h in alloc.history]
+        talk = "Недавняя переписка:\n" + "\n".join(lines) if lines else "Переписки пока нет."
+        where = "в личку" if ctx.chat_kind == "private" else "в групповой чат"
+        situation = (f"{talk}\n\nСейчас тебе никто не писал. Ты думаешь, не написать ли первой {where}. "
+                     f"Повод: {reason}.")
+        decide: list[ChatMessage] = [
+            {"role": "system", "content": self._system(alloc)},
+            {"role": "user", "content": (
+                f"{situation}\nПиши первой, только если это естественно и не навязчиво; "
+                "не повторяй то, что уже говорила. Верни ТОЛЬКО JSON по схеме:\n"
+                f"{INITIATIVE_SCHEMA}")},
+        ]
+        try:
+            raw = await self._planner.complete(decide, temperature=0.4, max_tokens=200,
+                                               json_mode=True)
+        except Exception:
+            log.warning("инициатива: планировщик недоступен", exc_info=True)
+            return []
+        verdict = _initiative_verdict(raw)
+        if verdict is None:
+            return []
+        intent, tone = verdict
+        guide = f"Ты пишешь первой. Задумка: {intent or reason}." + (f" Тон: {tone}." if tone else "")
+        write: list[ChatMessage] = [
+            {"role": "system", "content": self._system(alloc, guide)},
+            {"role": "user", "content": (
+                f"{situation}\n\nНапиши сообщение Али. Только текст сообщений, каждое с новой "
+                "строки, без кавычек и без подписи.")},
+        ]
+        try:
+            text = await self._chat.complete(write, temperature=self._temperature,
+                                             max_tokens=self._max_tokens)
+        except Exception:
+            log.warning("инициатива: модель ответа недоступна", exc_info=True)
+            return []
+        text = _SPEAKER_PREFIX.sub("", text.strip()).strip().strip("«»\"")
+        if not text:
+            return []
+        return await self._stylizer.apply(ctx.chat_id, text)
 
     def _decide(self, plan: Plan, turn: Turn, mood: VAD) -> bool:
         if plan.sincere_ai_question:
@@ -276,3 +352,30 @@ class CharacterEngine:
                                                 provenance=provenance, confidence=0.6)
             except Exception:
                 log.warning("не удалось сохранить факт в память", exc_info=True)
+
+
+def _initiative_verdict(raw: str) -> tuple[str, str] | None:
+    """(задумка, тон) или None, если писать не надо или ответ не разобран."""
+    import json
+
+    candidate = raw.strip()
+    fenced = _FENCE.search(candidate)
+    if fenced:
+        candidate = fenced.group(1)
+    start, end = candidate.find("{"), candidate.rfind("}")
+    if start == -1 or end <= start:
+        return None
+    try:
+        data = json.loads(candidate[start : end + 1])
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    write = data.get("write")
+    if isinstance(write, str):
+        write = write.strip().lower() in {"true", "1", "yes", "да"}
+    if write is not True:
+        return None
+    intent = " ".join(str(data.get("intent") or "").split())[:200]
+    tone = " ".join(str(data.get("tone") or "").split())[:60]
+    return intent, tone
