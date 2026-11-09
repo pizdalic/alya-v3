@@ -79,6 +79,17 @@ class Reply:
     reminder: tuple[datetime, str] | None = None  # (когда, UTC; о чём)
 
 
+MOOD_DEADZONE = 0.1          # мелкие оценки модели — шум, не событие
+NOT_ADDRESSED_FACTOR = 0.3   # сообщение не Але её почти не задевает
+
+
+def mood_delta(raw: VAD, *, addressed: bool) -> VAD | None:
+    """Сдвиг настроения из плана: шум отбрасываем, чужое ослабляем; None — ничего не меняется."""
+    k = 1.0 if addressed else NOT_ADDRESSED_FACTOR
+    vals = [0.0 if abs(x) < MOOD_DEADZONE else x * k for x in raw.as_tuple()]
+    return VAD(*vals) if any(vals) else None
+
+
 class CharacterEngine:
     def __init__(
         self,
@@ -117,13 +128,16 @@ class CharacterEngine:
 
     # --- контекст -------------------------------------------------------------
 
-    def _state_text(self, turn: Turn, mood: VAD, rel: Relationship) -> str:
+    def _state_text(self, turn: Turn, mood: VAD, rel: Relationship,
+                    why: list[str] | None = None) -> str:
         local = self._clock().astimezone(self._tz)
         where = "личная переписка" if turn.ctx.chat_kind == "private" else "групповой чат"
         return "\n".join([
             f"Сейчас {_WEEKDAYS[local.weekday()]}, {local:%d.%m.%Y %H:%M} (Екатеринбург).",
             f"Твоё состояние: {describe(mood)}.",
             f"Где: {where}. Собеседник: {turn.sender_name} — {rel.describe()}.",
+            *([f"Почему у тебя такое настроение (недавно в этом чате): {'; '.join(why)}."]
+              if why else []),
         ])
 
     async def _recall(self, turn: Turn) -> list[str]:
@@ -225,25 +239,28 @@ class CharacterEngine:
     async def respond(self, turn: Turn) -> Reply:
         ctx = turn.ctx
         mood = await self._emotions.current()
+        why = await self._emotions.reasons(ctx.chat_id)
         rel = await self._relationships.get(ctx.user_id, ctx.chat_id)
         memories = await self._recall(turn)
         alloc = self._allocator.allocate(core=self.character.core_prompt(),
-                                         state=self._state_text(turn, mood, rel),
+                                         state=self._state_text(turn, mood, rel, why),
                                          memories=memories, history=turn.history)
         plan, degraded = await self._plan(alloc, turn)
 
         e = plan.emotion
-        mood = await self._emotions.feel(
-            VAD(e.valence, e.arousal, e.dominance),
-            plan.emotion_reason or f"сообщение от {turn.sender_name}",
-            chat_id=ctx.chat_id, user_id=ctx.user_id)
+        delta = mood_delta(VAD(e.valence, e.arousal, e.dominance), addressed=turn.addressed)
+        if delta is not None:
+            mood = await self._emotions.feel(
+                delta, plan.emotion_reason or f"сообщение от {turn.sender_name}",
+                chat_id=ctx.chat_id, user_id=ctx.user_id)
+            why = await self._emotions.reasons(ctx.chat_id)
         rel = await self._relationships.interact(ctx.user_id, ctx.chat_id,
                                                  d_affinity=plan.affinity * 0.1,
                                                  d_trust=plan.trust * 0.1)
 
         should_reply = self._decide(plan, turn, mood)
         if should_reply:
-            alloc.state = self._state_text(turn, mood, rel)
+            alloc.state = self._state_text(turn, mood, rel, why)
             facts = await self._search(turn, plan)
             text = await self._answer(alloc, turn, plan, facts)
             if plan.sincere_ai_question and _denies_being_ai(text):
