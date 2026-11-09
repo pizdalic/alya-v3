@@ -27,12 +27,13 @@ class ProbeTests(unittest.IsolatedAsyncioTestCase):
         ad = TdlibAdapter(req, me_id=ME, send_timeout_s=2)
         req.adapter = ad
         out = await ad.probe_files(5)
-        self.assertEqual(len(out), 6)
+        self.assertEqual(len(out), 10)  # версия + 5 проб + 4 имени полей
+        self.assertTrue(all("не найдено" in line for line in out[6:]))
         self.assertIn("TDLib 1.8.70", out[0])
-        for line, letter in zip(out[1:], "ABCDE"):
+        for line, letter in zip(out[1:6], "ABCDE"):
             self.assertTrue(line.startswith(letter))
             self.assertIn("InputFile is not specified", line)
-        types = [q["input_message_content"]["@type"] for q in req.requests]
+        types = [q["input_message_content"]["@type"] for q in req.requests][:5]
         self.assertEqual(types, ["inputMessagePhoto", "inputMessagePhoto", "inputMessageAlyaProbe",
                                  "inputMessageDocument", "inputMessageSticker"])
 

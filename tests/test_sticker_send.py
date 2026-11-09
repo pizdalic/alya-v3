@@ -45,8 +45,10 @@ class StickerRequester(FakeRequester):
         return await super().request(query, timeout=timeout)
 
     def sent(self) -> list[dict[str, Any]]:
+        # пробы имени поля (inputFileAlyaKey_*) не считаются отправками
         return [q["input_message_content"]["sticker"] for q in self.requests
-                if q["@type"] == "sendMessage"]
+                if q["@type"] == "sendMessage"
+                and "AlyaKey" not in str(q["input_message_content"]["sticker"].get("@type"))]
 
 
 def _input_file_error() -> TdError:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
@@ -83,6 +84,22 @@ def media_ref(content: TdObject) -> MediaRef | None:
     return None
 
 
+# В сборке TDLib у владельца поле файла (photo/sticker/document) не читается: проба с неизвестным
+# классом файла не даёт ошибки разбора. Значит, поле называется иначе. Имя узнаём у самого
+# TDLib: шлём запрос, где каждый кандидат содержит свой выдуманный класс; парсер падает на первом
+# настоящем поле и называет его класс. Сообщение при этом не отправляется.
+_FILE_KEY_CANDIDATES = (
+    "photo", "sticker", "document", "voice_note", "animation", "video", "audio", "voice",
+    "file", "input_file", "media", "input_media", "content", "source", "data", "image",
+    "local_file", "uploaded_file", "file_to_send", "attachment",
+    "input_photo", "input_sticker", "input_document", "input_voice_note",
+    "photo_file", "sticker_file", "document_file", "voice_note_file", "photo_input_file",
+)
+_KEY_PROBE = "inputFileAlyaKey_"
+_KEY_FOUND = re.compile(r'Unknown class "inputFileAlyaKey_(\w+)"')
+_NO_FILE = "InputFile is not specified"
+
+
 def _local(path: str) -> TdObject:
     return {"@type": "inputFileLocal", "path": path}
 
@@ -125,6 +142,7 @@ class TdlibAdapter:
         self._client = client
         self._me = me_id
         self._send_timeout = send_timeout_s
+        self._file_keys: dict[str, str | None] = {}
         self._users: dict[int, TdObject] = {}
         self._chats: dict[int, TdObject] = {}
         self._reply_senders: OrderedDict[tuple[int, int], int | None] = OrderedDict()
@@ -288,18 +306,16 @@ class TdlibAdapter:
 
     async def send_voice(self, chat_id: int, path: str, duration_s: int, *,
                          reply_to: int | None = None) -> int:
-        return await self._send(chat_id, {"@type": "inputMessageVoiceNote",
-                                          "voice_note": _local(path),
-                                          "duration": int(duration_s), "waveform": ""},
-                                reply_to)
+        return await self._send_media(chat_id, "inputMessageVoiceNote", "voice_note", _local(path),
+                                      {"duration": int(duration_s), "waveform": ""}, reply_to)
 
     async def send_photo(self, chat_id: int, path: str, *, caption: str = "",
                          reply_to: int | None = None) -> int:
-        content: TdObject = {"@type": "inputMessagePhoto", "photo": _local(path),
-                             "width": 0, "height": 0}
+        extra: TdObject = {"width": 0, "height": 0}
         if caption:
-            content["caption"] = {"@type": "formattedText", "text": caption, "entities": []}
-        return await self._send(chat_id, content, reply_to)
+            extra["caption"] = {"@type": "formattedText", "text": caption, "entities": []}
+        return await self._send_media(chat_id, "inputMessagePhoto", "photo", _local(path),
+                                      extra, reply_to)
 
     async def send_sticker(self, chat_id: int, remote_id: str, *,
                            reply_to: int | None = None) -> int:
@@ -339,12 +355,14 @@ class TdlibAdapter:
     async def _send_sticker_step(self, chat_id: int, sticker: TdObject, reply_to: int | None,
                                  short: str, how: str) -> int:
         # только обязательное поле: width/height/emoji у TDLib по умолчанию и так 0/""
-        content: TdObject = {"@type": "inputMessageSticker", "sticker": sticker}
         try:
-            msg_id = await self._send(chat_id, content, reply_to)
+            msg_id = await self._send_media(chat_id, "inputMessageSticker", "sticker", sticker, {},
+                                            reply_to)
         except TransportError as exc:
+            key = self._file_keys.get("inputMessageSticker") or "sticker"
             log.warning("стикер %s: sendMessage (%s) отклонён: %s; input_message_content=%s",
-                        short, how, exc, json.dumps(content, ensure_ascii=False))
+                        short, how, exc,
+                        json.dumps({"@type": "inputMessageSticker", key: sticker}, ensure_ascii=False))
             raise
         log.info("стикер %s: отправлен в чат %s через %s", short, chat_id, how)
         return msg_id
@@ -364,6 +382,50 @@ class TdlibAdapter:
             raise TransportError("стикер не скачался")
         log.info("стикер %s: скачан в %s", short, path)
         return str(path)
+
+    async def _send_media(self, chat_id: int, msg_type: str, default_key: str, file: TdObject,
+                          extra: TdObject, reply_to: int | None) -> int:
+        """sendMessage с файлом; если TDLib не видит поле файла — узнать его имя и повторить."""
+        key = self._file_keys.get(msg_type) or default_key
+        try:
+            return await self._send(chat_id, {"@type": msg_type, key: file, **extra}, reply_to)
+        except TransportError as exc:
+            if _NO_FILE not in str(exc) or msg_type in self._file_keys:
+                raise
+            real = await self._discover_file_key(
+                msg_type, lambda probe: {"@type": "sendMessage", "chat_id": self._me,
+                                         "input_message_content": {"@type": msg_type, **probe}})
+            if real is None or real == key:
+                raise
+        return await self._send(chat_id, {"@type": msg_type, real: file, **extra}, reply_to)
+
+    async def _discover_file_key(self, cls: str,
+                                 build: Callable[[TdObject], TdObject]) -> str | None:
+        """Имя поля InputFile в классе cls для текущей сборки TDLib (или None)."""
+        probe: TdObject = {k: {"@type": _KEY_PROBE + k} for k in _FILE_KEY_CANDIDATES}
+        found: str | None = None
+        try:
+            await self._client.request(build(probe))
+            log.warning("TDLib %s: проба поля файла неожиданно принята", cls)
+        except TransportError as exc:
+            m = _KEY_FOUND.search(str(exc))
+            if m:
+                found = m.group(1)
+                log.warning("TDLib %s: поле файла называется %r", cls, found)
+            else:
+                log.warning("TDLib %s: поле файла не найдено среди кандидатов: %s", cls, exc)
+        self._file_keys[cls] = found
+        return found
+
+    async def file_keys(self) -> dict[str, str | None]:
+        """Имена полей файла для всех типов медиа (для /tdprobe)."""
+        out: dict[str, str | None] = {}
+        for cls in ("inputMessagePhoto", "inputMessageSticker", "inputMessageDocument",
+                    "inputMessageVoiceNote"):
+            out[cls] = await self._discover_file_key(
+                cls, lambda probe, cls=cls: {"@type": "sendMessage", "chat_id": self._me,
+                                             "input_message_content": {"@type": cls, **probe}})
+        return out
 
     async def td_version(self) -> str:
         try:
@@ -391,6 +453,8 @@ class TdlibAdapter:
                 out.append(f"{label}: {exc}")
             else:
                 out.append(f"{label}: принято (id {msg_id})")
+        for cls, key in (await self.file_keys()).items():
+            out.append(f"поле файла {cls}: {key or 'не найдено'}")
         log.info("tdprobe: %s", " | ".join(out))
         return out
 
@@ -427,9 +491,23 @@ class TdlibAdapter:
         await self._client.request({"@type": "setBio", "bio": text})
 
     async def set_avatar(self, path: str) -> None:
-        await self._client.request({"@type": "setProfilePhoto", "is_public": False,
-                                    "photo": {"@type": "inputChatPhotoStatic",
-                                              "photo": _local(path)}})
+        def req(key: str, file: TdObject) -> TdObject:
+            return {"@type": "setProfilePhoto", "is_public": False,
+                    "photo": {"@type": "inputChatPhotoStatic", key: file}}
+
+        key = self._file_keys.get("inputChatPhotoStatic") or "photo"
+        try:
+            await self._client.request(req(key, _local(path)))
+            return
+        except TransportError as exc:
+            if _NO_FILE not in str(exc) or "inputChatPhotoStatic" in self._file_keys:
+                raise
+            real = await self._discover_file_key(
+                "inputChatPhotoStatic", lambda probe: {"@type": "setProfilePhoto", "is_public": False,
+                                                       "photo": {"@type": "inputChatPhotoStatic", **probe}})
+            if real is None or real == key:
+                raise
+        await self._client.request(req(real, _local(path)))
 
     async def sticker_set(self, name: str) -> list[tuple[str, str]]:
         found = await self._client.request({"@type": "searchStickerSet", "name": name})
