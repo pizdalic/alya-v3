@@ -27,6 +27,7 @@ from alya.telegram.privacy import PrivacyCommands
 
 if TYPE_CHECKING:
     from alya.plugins.registry import PluginHost
+    from alya.telegram.moderation import Moderator
 from alya.telegram.sanitize import clean_outgoing
 from alya.telegram.transport import Transport
 
@@ -63,7 +64,9 @@ class Pipeline:
                  clock: Clock = utcnow, media: MediaKit | None = None,
                  autonomy: AutonomyStore | None = None,
                  privacy: PrivacyCommands | None = None,
-                 plugins: PluginHost | None = None) -> None:
+                 plugins: PluginHost | None = None,
+                 moderation: Moderator | None = None) -> None:
+        self._moderation = moderation
         self._privacy = privacy
         self._plugins = plugins
         self._db = db
@@ -167,6 +170,8 @@ class Pipeline:
             await self._system_replies(msg, await self._plugins.handle(msg), "plug")
             return
         await self._store(msg, sender_id=msg.sender_id)
+        if self._moderation is not None and msg.is_group:
+            await self._moderation.check(msg)  # dry_run: только audit_log
         if await self._pause_command(msg):
             return
         self._debouncer.add((msg.chat_id, msg.sender_id), msg)

@@ -18,6 +18,7 @@ from alya.telegram.media_flow import MediaKit
 from alya.telegram.outbox import OutboxStore
 from alya.plugins.registry import PluginHost, load_plugins
 from alya.telegram.commands import COMMAND_NAMES
+from alya.telegram.moderation import ModerationRules, Moderator
 from alya.telegram.privacy import NAMES as PRIVACY_NAMES
 from alya.telegram.privacy import PrivacyCommands
 from alya.telegram.pipeline import Pipeline, PipelineConfig, Responder
@@ -51,6 +52,18 @@ class TelegramService:
         self._sender: Sender | None = None
         self._pipeline: Pipeline | None = None
         self.ready = False
+
+    def _build_moderator(self) -> Moderator | None:
+        cfg = self._settings.moderation
+        if not cfg.enabled:
+            return None
+        owner = self._settings.app.owner_user_id
+        rules = ModerationRules(flood_messages=cfg.flood_messages,
+                                flood_window_s=cfg.flood_window_s, max_links=cfg.max_links,
+                                banned_words=tuple(cfg.banned_words),
+                                exempt_user_ids=(owner,) if owner else ())
+        log.info("модерация: dry_run, только audit_log")
+        return Moderator(self._db, rules)
 
     def _load_plugins(self) -> PluginHost | None:
         cfg = self._settings.plugins
@@ -96,7 +109,7 @@ class TelegramService:
         plugins = self._load_plugins()
         pipeline = Pipeline(self._db, self._engine, detector, outbox, transport=adapter,
                             media=self._media, autonomy=autonomy, privacy=privacy,
-                            plugins=plugins,
+                            plugins=plugins, moderation=self._build_moderator(),
                             config=PipelineConfig(
                                 me_id=me_id, owner_id=self._settings.app.owner_user_id,
                                 strangers=tg.strangers,

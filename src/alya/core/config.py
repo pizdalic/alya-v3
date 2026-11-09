@@ -236,6 +236,17 @@ class AutonomySection(_Section):
     jitter: float = Field(default=0.08, ge=0, le=0.5)
 
 
+class ModerationSection(_Section):
+    """Модерация в группах: только запись в audit_log, без действий (T11)."""
+
+    enabled: bool = False
+    dry_run: Literal[True] = True  # настоящих банов и удалений нет и не будет без ADR
+    flood_messages: int = Field(default=8, ge=2, le=100)
+    flood_window_s: int = Field(default=30, ge=5, le=3600)
+    max_links: int = Field(default=3, ge=0, le=50)
+    banned_words: list[str] = Field(default_factory=list)
+
+
 class PluginsSection(_Section):
     """Плагины (Phase 8): загружаются только перечисленные в grants."""
 
@@ -268,6 +279,7 @@ class Settings(_Section):
     media: MediaSection = Field(default_factory=MediaSection)
     autonomy: AutonomySection = Field(default_factory=AutonomySection)
     plugins: PluginsSection = Field(default_factory=PluginsSection)
+    moderation: ModerationSection = Field(default_factory=ModerationSection)
 
     def problems_for_run(self) -> list[str]:
         """Чего не хватает для полноценной работы (формально конфиг при этом валиден)."""

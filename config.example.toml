@@ -153,3 +153,10 @@ timeout_s = 10
 
 [plugins.grants]               # загружается только то, что перечислено здесь
 # dice = ["reply", "storage"]  # разрешения: reply, recall, storage
+
+[moderation]                   # только dry_run: пишет в audit_log, что сделала бы; никого не банит
+enabled = false
+flood_messages = 8             # столько сообщений от одного человека...
+flood_window_s = 30            # ...за столько секунд = флуд
+max_links = 3
+banned_words = []
