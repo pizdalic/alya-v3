@@ -351,3 +351,36 @@ class SenderMediaTests(DbTestCase):
         await self.store.enqueue(1, "s", {"kind": "sticker", "remote_id": "r1"})
         self.assertEqual(await sender.run_once(), 0)
         self.assertEqual(await self.store.counts(), {"failed": 1})
+
+
+import io  # noqa: E402
+import unittest  # noqa: E402
+import wave  # noqa: E402
+
+from alya.media import audio  # noqa: E402
+
+
+def _wav(seconds: float = 1.5) -> bytes:
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(b"\x00\x01" * int(16000 * seconds))
+    return buf.getvalue()
+
+
+@unittest.skipUnless(audio.ffmpeg_path(), "ffmpeg не установлен")
+class AudioTests(unittest.IsolatedAsyncioTestCase):
+    async def test_voice_note(self) -> None:
+        ogg, seconds = await audio.to_voice_note(_wav())
+        self.assertTrue(ogg.startswith(b"OggS"))
+        self.assertIn(seconds, (1, 2))
+
+    async def test_speech_to_mp3(self) -> None:
+        mp3 = await audio.speech_to_mp3(_wav(), max_seconds=10)
+        self.assertTrue(mp3[:3] == b"ID3" or mp3[0] == 0xFF)
+
+    async def test_garbage_raises(self) -> None:
+        with self.assertRaises(audio.AudioError):
+            await audio.to_voice_note(b"definitely not audio")
