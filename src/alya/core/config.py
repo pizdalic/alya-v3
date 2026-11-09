@@ -208,6 +208,34 @@ class MediaSection(_Section):
         return value
 
 
+class AutonomySection(_Section):
+    """Автономия (Phase 7, ADR-0008): пишет первой, напоминает, читает каналы."""
+
+    enabled: bool = True
+    proactive_dm: bool = True
+    group_initiative: bool = True
+    read_channels: bool = True
+    check_interval_s: float = Field(default=900.0, ge=10)
+    quiet_start_hour: int = Field(default=23, ge=0, le=23)
+    quiet_end_hour: int = Field(default=9, ge=0, le=23)
+    dm_threshold: float = Field(default=0.55, ge=0, le=1)
+    dm_min_silence_hours: float = Field(default=8.0, ge=0)
+    dm_max_silence_days: float = Field(default=14.0, gt=0)
+    dm_min_interactions: int = Field(default=20, ge=0)
+    dm_per_person_hours: float = Field(default=24.0, ge=1)
+    dm_max_per_day: int = Field(default=3, ge=0)
+    consider_cooldown_hours: float = Field(default=3.0, ge=0)
+    group_window_minutes: float = Field(default=20.0, gt=0)
+    group_min_messages: int = Field(default=6, ge=1)
+    group_min_participants: int = Field(default=3, ge=2)
+    group_min_hits: int = Field(default=2, ge=1)
+    group_cooldown_hours: float = Field(default=4.0, ge=0)
+    group_max_per_day: int = Field(default=4, ge=0)
+    channel_digest_hours: float = Field(default=12.0, gt=0)
+    channel_max_facts: int = Field(default=3, ge=0, le=10)
+    jitter: float = Field(default=0.08, ge=0, le=0.5)
+
+
 class Settings(_Section):
     app: AppSection = Field(default_factory=AppSection)
     telegram: TelegramSection = Field(default_factory=TelegramSection)
@@ -219,6 +247,7 @@ class Settings(_Section):
     character: CharacterSection = Field(default_factory=CharacterSection)
     dream: DreamSection = Field(default_factory=DreamSection)
     media: MediaSection = Field(default_factory=MediaSection)
+    autonomy: AutonomySection = Field(default_factory=AutonomySection)
 
     def problems_for_run(self) -> list[str]:
         """Чего не хватает для полноценной работы (формально конфиг при этом валиден)."""

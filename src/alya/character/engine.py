@@ -190,6 +190,9 @@ class CharacterEngine:
         lines += [f"источник: {t} {u}".strip() for t, u in found.sources]
         return "\n".join(lines)
 
+    async def mood(self) -> VAD:
+        return await self._emotions.current()
+
     def selfie_prompt(self, scene: str) -> str:
         look = self.character.core.appearance or (
             f"девушка {self.character.core.age} лет")
