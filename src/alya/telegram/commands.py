@@ -1,4 +1,5 @@
-"""Служебные команды владельца в личке: /join, /bio, /avatar, /stickers, /media.
+"""Служебные команды владельца в личке: /join, /bio, /avatar, /stickers, /media,
+/channels, /reminders.
 
 Команды принимаются только от owner_user_id и только в личном чате. Всё остальное —
 обычные сообщения. Ответ команды — короткий служебный текст, в память он не попадает.
@@ -11,6 +12,9 @@ import logging
 import re
 from pathlib import Path
 from typing import Protocol
+from zoneinfo import ZoneInfo
+
+from alya.autonomy.store import AutonomyStore
 
 from alya.media.limits import KINDS, UsageLimiter
 from alya.media.stickers import StickerStore
@@ -28,7 +32,10 @@ HELP = ("команды:\n"
         "/bio <текст> — сменить описание профиля\n"
         "/avatar — пришли фото с подписью /avatar\n"
         "/stickers add|remove <набор> · /stickers list\n"
-        "/media — что включено и сколько потрачено за сутки")
+        "/media — что включено и сколько потрачено за сутки\n"
+        "/channels — каналы, которые я читаю · /channels off|on <id>\n"
+        "/reminders — мои напоминания тебе · /reminders cancel <id>\n"
+        "/pause · /resume — не писать тебе первой / снова можно")
 
 
 class AccountTransport(Protocol):
@@ -47,7 +54,11 @@ class OwnerCommands:
     def __init__(self, transport: AccountTransport, *, owner_id: int | None,
                  limiter: UsageLimiter | None = None, stickers: StickerStore | None = None,
                  media_dir: Path = Path("runtime/media"),
-                 max_image_bytes: int = 10 * 1024 * 1024) -> None:
+                 max_image_bytes: int = 10 * 1024 * 1024,
+                 autonomy: AutonomyStore | None = None,
+                 timezone: str = "Asia/Yekaterinburg") -> None:
+        self._autonomy = autonomy
+        self._tz = ZoneInfo(timezone)
         self._t = transport
         self._owner = owner_id
         self._limiter = limiter
@@ -71,6 +82,7 @@ class OwnerCommands:
         arg = arg.strip()
         handler = {"/join": self._join, "/bio": self._bio, "/avatar": self._avatar,
                    "/stickers": self._sticker_cmd, "/media": self._media,
+                   "/channels": self._channels, "/reminders": self._reminders,
                    "/help": self._help}.get(name)
         if handler is None:
             return None  # неизвестная команда — пусть Аля просто ответит
@@ -79,6 +91,47 @@ class OwnerCommands:
         except TransportError as exc:
             log.warning("команда %s не выполнена: %s", name, exc)
             return f"не получилось: {exc}"
+
+    async def _channels(self, msg: IncomingMessage, arg: str) -> str:
+        if self._autonomy is None:
+            return "автономия выключена"
+        action, _, rest = arg.partition(" ")
+        if action in ("off", "on"):
+            try:
+                chat_id = int(rest.strip())
+            except ValueError:
+                return "формат: /channels off <id> · /channels on <id>"
+            ok = await self._autonomy.set_channel_muted(chat_id, action == "off")
+            if not ok:
+                return "такого канала я не знаю"
+            return "больше не читаю" if action == "off" else "снова читаю"
+        if action:
+            return "формат: /channels · /channels off <id> · /channels on <id>"
+        rows = await self._autonomy.channels()
+        if not rows:
+            return "каналов пока нет — подпиши меня на канал (или /join для закрытого)"
+        return "\n".join(f"{cid} — {title or 'без названия'} — "
+                         f"{'выкл' if muted else 'читаю'}, постов: {n}"
+                         for cid, title, muted, n in rows)
+
+    async def _reminders(self, msg: IncomingMessage, arg: str) -> str:
+        if self._autonomy is None or msg.sender_id is None:
+            return "автономия выключена"
+        action, _, rest = arg.partition(" ")
+        if action == "cancel":
+            try:
+                rid = int(rest.strip())
+            except ValueError:
+                return "формат: /reminders cancel <id>"
+            ok = await self._autonomy.cancel_reminder(msg.sender_id, rid)
+            return "отменила" if ok else "такого напоминания нет"
+        if action:
+            return "формат: /reminders · /reminders cancel <id>"
+        rows = await self._autonomy.pending_reminders(msg.sender_id)
+        if not rows:
+            return "напоминаний нет"
+        return "\n".join(f"{r.id} — {r.due_at.astimezone(self._tz):%d.%m %H:%M} — {r.text}"
+                         for r in rows)
 
     async def _help(self, msg: IncomingMessage, arg: str) -> str:
         return HELP

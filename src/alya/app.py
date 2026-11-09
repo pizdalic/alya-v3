@@ -349,14 +349,15 @@ def build_app(settings: Settings) -> App:
             new_memories_threshold=ds.new_memories_threshold, min_gap_hours=ds.min_gap_hours))
         registry.add("dream", _dream_check(dream))
     _add_telegram(lifecycle, settings, db, engine,
-                  build_media(settings, db, limiter, engine))
+                  build_media(settings, db, limiter, engine), memory=memory_service)
     if settings.health.enabled:
         lifecycle.add(HealthServer(registry, settings.health.host, settings.health.port))
     return App(settings=settings, container=container, lifecycle=lifecycle)
 
 
 def _add_telegram(lifecycle: Lifecycle, settings: Settings, db: Database,
-                  engine: CharacterEngine | None, media: MediaKit | None = None) -> None:
+                  engine: CharacterEngine | None, media: MediaKit | None = None,
+                  memory: MemoryService | None = None) -> None:
     tg = settings.telegram
     if tg.mode == "none":
         return
@@ -370,7 +371,7 @@ def _add_telegram(lifecycle: Lifecycle, settings: Settings, db: Database,
 
     classifier = build_chat_model(settings, "utility") or build_chat_model(settings, "chat")
     lifecycle.add(TelegramService(settings, db, engine, classifier_chat=classifier,
-                                  media=media))
+                                  media=media, memory=memory))
 
 
 def _database_check(db: Database) -> HealthCheck:

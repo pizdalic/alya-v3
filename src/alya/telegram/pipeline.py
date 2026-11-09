@@ -11,6 +11,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Literal, Protocol
 
+from alya.autonomy.store import AutonomyStore
 from alya.character.allocator import HistoryLine
 from alya.character.engine import Turn
 from alya.core.timeutil import Clock, iso, utcnow
@@ -48,13 +49,15 @@ class PipelineConfig:
     history_lines: int = 30
     debounce_s: float = 2.0
     debounce_max_wait_s: float = 8.0
+    read_channels: bool = False  # сохранять посты каналов для сводок (Phase 7)
 
 
 class Pipeline:
     def __init__(self, db: Database, engine: Responder, detector: AddresseeDetector,
                  outbox: OutboxStore, *, config: PipelineConfig,
                  transport: Transport | None = None, wake: Callable[[], None] | None = None,
-                 clock: Clock = utcnow, media: MediaKit | None = None) -> None:
+                 clock: Clock = utcnow, media: MediaKit | None = None,
+                 autonomy: AutonomyStore | None = None) -> None:
         self._db = db
         self._engine = engine
         self._detector = detector
@@ -64,6 +67,7 @@ class Pipeline:
         self._wake = wake
         self._clock = clock
         self._media = media
+        self._autonomy = autonomy
         self._replies: dict[int, deque[datetime]] = {}
         self._chat_locks: dict[int, asyncio.Lock] = {}
         self._debouncer: Debouncer[tuple[int, int], IncomingMessage] = Debouncer(
@@ -130,7 +134,10 @@ class Pipeline:
 
     async def on_message(self, msg: IncomingMessage) -> None:
         if msg.chat_kind == "channel":
-            return  # каналы — Phase 7
+            # посты каналов — только контекст для сводок; отвечать в каналах Аля не будет
+            if self._autonomy is not None and self._cfg.read_channels and msg.text:
+                await self._store(msg, sender_id=None)
+            return
         if msg.is_outgoing:
             # владелец написал с аккаунта Али вручную
             await self._store(msg, sender_id=self._cfg.me_id)
@@ -145,7 +152,29 @@ class Pipeline:
         if not await self._allowed(msg):
             return
         await self._store(msg, sender_id=msg.sender_id)
+        if await self._pause_command(msg):
+            return
         self._debouncer.add((msg.chat_id, msg.sender_id), msg)
+
+    async def _pause_command(self, msg: IncomingMessage) -> bool:
+        """/pause и /resume в личке — для любого собеседника, не только владельца."""
+        if self._autonomy is None or not msg.is_private or msg.sender_id is None:
+            return False
+        word = (msg.text or "").strip().lower().split("@", 1)[0]
+        if word == "/pause":
+            await self._autonomy.pause(msg.sender_id)
+            answer = "ок, не буду писать первой. /resume — вернуть"
+        elif word == "/resume":
+            await self._autonomy.resume(msg.sender_id)
+            answer = "ок, снова могу иногда написать первой"
+        else:
+            return False
+        await self._outbox.enqueue(msg.chat_id, f"{msg.chat_id}:{msg.message_id}:pause", {
+            "text": answer, "reply_to": None, "typing_s": 0, "addressees": [],
+            "system": True})
+        if self._wake is not None:
+            self._wake()
+        return True
 
     async def _command(self, msg: IncomingMessage) -> bool:
         commands = self._media.commands if self._media is not None else None
@@ -199,7 +228,7 @@ class Pipeline:
             (ev.chat_id, *ev.message_ids))
 
     async def _history(self, chat_id: int, exclude: Sequence[int]) -> list[HistoryLine]:
-        marks = ",".join("?" * len(exclude)) or "NULL"
+        marks = ",".join("?" * len(exclude)) or "-1"
         rows = await self._db.fetchall(
             f"""SELECT m.is_outgoing, COALESCE(u.display_name, u.username, 'кто-то'), m.text
                 FROM messages m LEFT JOIN users u ON u.user_id = m.sender_user_id
@@ -243,6 +272,12 @@ class Pipeline:
                else MemoryContext.group(chat_id, sender_id))
         turn = Turn(ctx, text, last.display_name, await self._history(chat_id, ids), True)
         reply = await self._engine.respond(turn)
+        reminder = getattr(reply, "reminder", None)
+        if reminder is not None and self._autonomy is not None:
+            try:
+                await self._autonomy.add_reminder(chat_id, sender_id, reminder[1], reminder[0])
+            except Exception:
+                log.warning("напоминание не сохранено", exc_info=True)
         parts = [p for raw in getattr(reply, "messages", []) for p in clean_outgoing(raw)]
         if self._transport is not None:
             try:
